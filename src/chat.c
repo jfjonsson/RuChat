@@ -21,17 +21,20 @@
 #include <signal.h>
 #include <glib.h>
 
+#include <arpa/inet.h>
+
 /* Secure socket layer headers */
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
 /* Key and certificate */
-#define RSA_CLIENT_CERT     "fd-client.crt"
-#define RSA_CLIENT_KEY      "fd-client.key"
-#define RSA_CLIENT_CA_CERT  "rootCA.pem"
+#define RSA_CLIENT_CA_CERT  "server.pem"
 
 /* If x is null we exit */
 #define RETURN_NULL(x) if ((x) == NULL) exit (1)
+
+/* maximum buffer size */
+#define BUFF_SIZE 2048
 
 /* For nicer interaction, we use the GNU readline library. */
 #include <readline/readline.h>
@@ -92,6 +95,24 @@ void getpasswd(const char *prompt, char *passwd, size_t size)
 }
 
 
+int ssl_shut_down(SSL *ssl, int sockfd) {
+    /* Shutdown the client side of the SSL connection */
+    int err = SSL_shutdown(ssl);
+    if(err == -1) {
+        ERR_print_errors_fp(stderr);
+    }
+
+    /* Terminate communication on a socket */
+    err = close(sockfd);
+    if(err == -1) {
+        return -1;
+    }
+
+    /* Free the SSL structure */
+    SSL_free(ssl);
+
+    return 1;
+}
 
 /* If someone kills the client, it should still clean up the readline
    library, otherwise the terminal is in a inconsistent state. We set
@@ -117,6 +138,7 @@ void sigint_handler(int signum)
  */
 static int server_fd;
 static SSL *server_ssl;
+static struct sockaddr_in server_addr;
 
 /* This variable shall point to the name of the user. The initial value
    is NULL. Set this variable to the username once the user managed to be
@@ -132,7 +154,6 @@ static char *chatroom;
  * input. It is good style to indicate the name of the user and the
  * chat room he is in as part of the prompt. */
 static char *prompt;
-
 
 
 /* When a line is entered using the readline library, this function
@@ -257,24 +278,29 @@ void readline_callback(char *line)
     }
     /* Sent the buffer to the server. */
     snprintf(buffer, 255, "Message: %s\n", line);
-    write(STDOUT_FILENO, buffer, strlen(buffer));
+    SSL_write(server_ssl, buffer, strlen(buffer));
     fsync(STDOUT_FILENO);
 }
 
 int main(int argc, char **argv)
 {
-    char *host;
+    signal(SIGINT, sigint_handler);
+
+    char *s_ipaddr;
     unsigned short int s_port; /* Check that port was provided */
     if(argc > 2) {
-        host = g_malloc0(strlen(argv[1]));
-        sscanf(argv[1], "%s\n", host);;
+        s_ipaddr = g_malloc0(strlen(argv[1]));
+        sscanf(argv[1], "%s\n", s_ipaddr);;
         sscanf(argv[2], "%hu", &s_port);
     } else exit(1);
+
+    /* message buffer */
+    char message[BUFF_SIZE];
 
     /* Initialize OpenSSL */
     SSL_library_init();
     SSL_load_error_strings();
-    SSL_CTX *ssl_ctx = SSL_CTX_new(TLSv1_client_method());
+    SSL_CTX *ssl_ctx = SSL_CTX_new(SSLv3_client_method());
 
     /* TODO:
      * We may want to use a certificate file if we self sign the
@@ -286,12 +312,16 @@ int main(int argc, char **argv)
      */
 
     /* If context failed to initialize */
-    RETURN_NULL(ssl_ctx);
+    if(ssl_ctx == NULL) {
+        printf("ssl_ctx failed to initiate\n");
+        exit(1);
+    }
 
     /* Load the RSA CA certificate into the SSL_CTX structure         */
     /* This will allow the client to verify the server's certificate. */
 
     if (!SSL_CTX_load_verify_locations(ssl_ctx, RSA_CLIENT_CA_CERT, NULL)) {
+        printf("lead CA failed\n");
         ERR_print_errors_fp(stderr);
         exit(1);
     }
@@ -299,28 +329,88 @@ int main(int argc, char **argv)
     /* Set flag in context to require peer (server) certificate */
     /* verification */
 
-    SSL_CTX_set_verify(ssl_ctx,SSL_VERIFY_PEER,NULL);
+    SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
 
-    SSL_CTX_set_verify_depth(ssl_ctx,1);
+    SSL_CTX_set_verify_depth(ssl_ctx, 1);
 
+    server_fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+    if(server_fd == -1) {
+        perror("server_fd");
+        exit(1);
+    }
+
+    memset (&server_addr, '\0', sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+
+    server_addr.sin_port = htons(s_port);       /* Server Port number */
+
+    server_addr.sin_addr.s_addr = inet_addr(s_ipaddr); /* Server IP */
+
+    /* Establish a TCP/IP connection to the SSL client */
+    int connect_err = connect(server_fd, (struct sockaddr*) &server_addr, sizeof(server_addr));
+
+    if(connect_err == -1) {
+        perror("server_fd");
+        exit(1);
+    }
+
+    /* Create ssl structure */
     server_ssl = SSL_new(ssl_ctx);
 
-    /* TODO: Create and set up a listening socket. The sockets you
-     * create here can be used in select calls, so do not forget
-     * them.
-     */
+    if(server_ssl == NULL) {
+        printf("server_ssl is NULL\n");
+        exit(1);
+    }
 
     /* Use the socket for the SSL connection. */
     SSL_set_fd(server_ssl, server_fd);
+
+    /* Perform SSL Handshake on the SSL client */
+    int handshake_err = SSL_connect(server_ssl);
+
+    if(handshake_err == -1) {
+        printf("handshake\n");
+        ERR_print_errors_fp(stderr);
+        exit(1);
+    }
+
+    /* Informational output (optional) */
+    printf("SSL connection using %s\n", SSL_get_cipher(server_ssl));
+
+    X509 *server_cert;
+    char *str;
+    /* Get the server's certificate */
+    server_cert = SSL_get_peer_certificate(server_ssl);
+
+    if (server_cert != NULL)
+    {
+        printf ("Server certificate:\n");
+
+        str = X509_NAME_oneline(X509_get_subject_name(server_cert),0,0);
+        RETURN_NULL(str);
+        printf ("\t subject: %s\n", str);
+        free (str);
+
+        str = X509_NAME_oneline(X509_get_issuer_name(server_cert),0,0);
+        RETURN_NULL(str);
+        printf ("\t issuer: %s\n", str);
+        free(str);
+
+        X509_free (server_cert);
+
+    } else printf("The SSL server does not have certificate.\n");
+
 
     /* Now we can create BIOs and use them instead of the socket.
      * The BIO is responsible for maintaining the state of the
      * encrypted connection and the actual encryption. Reads and
      * writes to sock_fd will insert unencrypted data into the
      * stream, which even may crash the server.
+     *
+        sbio = BIO_new_socket(server_fd, BIO_NOCLOSE);
+        SSL_set_bio(server_ssl, sbio, sbio);
      */
-
-    /* TODO: Set up secure connection to the chatd server. */
 
     /* Read characters from the keyboard while waiting for input.
     */
@@ -332,10 +422,11 @@ int main(int argc, char **argv)
 
         FD_ZERO(&rfds);
         FD_SET(STDIN_FILENO, &rfds);
+        FD_SET(server_fd, &rfds);
         timeout.tv_sec = 5;
         timeout.tv_usec = 0;
 
-        int r = select(STDIN_FILENO + 1, &rfds, NULL, NULL, &timeout);
+        int r = select(((server_fd > STDIN_FILENO) ? server_fd : STDIN_FILENO) + 1, &rfds, NULL, NULL, &timeout);
         if (r < 0) {
             if (errno == EINTR) {
                 /* TODO: This should either retry the call or
@@ -358,11 +449,24 @@ int main(int argc, char **argv)
         if (FD_ISSET(STDIN_FILENO, &rfds)) {
             rl_callback_read_char();
         }
+        if(FD_ISSET(server_fd, &rfds)) {
+            /* TODO: Handle messages from the server here! */
 
-        /* TODO: Handle messages from the server here! */
+            int len = SSL_read(server_ssl, message, sizeof(message) - 1);
+
+            if(len == -1) {
+                printf("Error reading form server\n");
+            }
+
+            message[len] = '\0';
+            printf ("Received %d chars:'%s'\n", len, message);
+        }
     }
     /* TODO: replace by code to shutdown the connection and exit
        the program. */
 
-    g_free(host);
+    ssl_shut_down(server_ssl, server_fd);
+
+    printf("Exiting!\n");
+    g_free(s_ipaddr);
 }
