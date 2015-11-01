@@ -58,6 +58,7 @@ int sockaddr_in_cmp(const void *addr1, const void *addr2)
 
 /* Connections tree */
 GTree *connections;
+GTree *chatrooms;
 fd_set rfds;
 
 gboolean is_greater(gpointer key, gpointer user, gpointer data) {
@@ -122,7 +123,7 @@ gboolean list_users(gpointer key, gpointer value, gpointer data) {
 
     printf("port: %s\n", port_str);
 
-    gchar * message = g_strjoin(" ", (user->username) ? user->username : "NULL", inet_ntoa(client->sin_addr), port_str, NULL);
+    gchar * message = g_strjoin(NULL, "Username: ",(user->username) ? user->username : "NULL", ", IP: ", inet_ntoa(client->sin_addr), ":", port_str, NULL);
 
     SSL_write(write_ssl, message, strlen(message));
     return FALSE;
