@@ -156,6 +156,24 @@ static char *chatroom;
 static char *prompt;
 
 
+void send_message(char * message) {
+    int write_err = SSL_write(server_ssl, message, strlen(message));
+    if(write_err == -1) { printf("Error writing to server\n"); }
+}
+
+
+/* command      key
+ * ====================
+ * bye / quit   0
+ * game         1
+ * join         2
+ * list         3
+ * roll         4
+ * say          5
+ * user         6
+ * who          7
+ */
+
 /* When a line is entered using the readline library, this function
    gets called to handle the entered line. Implement the code to
    handle the user requests in this function. The client handles the
@@ -182,8 +200,7 @@ void readline_callback(char *line)
         int i = 4;
         while (line[i] != '\0' && isspace(line[i])) { i++; }
         if (line[i] == '\0') {
-            write(STDOUT_FILENO, "Usage: /game username\n",
-                    29);
+            write(STDOUT_FILENO, "Usage: /game username\n", 29);
             fsync(STDOUT_FILENO);
             rl_redisplay();
             return;
@@ -274,6 +291,7 @@ void readline_callback(char *line)
     }
     if (strncmp("/who", line, 4) == 0) {
         /* TODO: Query all available users */
+        send_message("/7");
         return;
     }
     /* Sent the buffer to the server. */
@@ -456,6 +474,10 @@ int main(int argc, char **argv)
 
             if(len == -1) {
                 printf("Error reading form server\n");
+            }
+
+            if(len == 0) {
+                break;
             }
 
             message[len] = '\0';

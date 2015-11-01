@@ -20,8 +20,7 @@
 #define RSA_SERVER_CERT  "server.crt"
 #define RSA_SERVER_KEY   "server.key"
 
-#define ON  1
-#define OFF 0
+#define UNUSED(x) (void)(x)
 
 #define BUFF_SIZE 2048
 
@@ -29,6 +28,7 @@ struct user_info {
     SSL *ssl;
     int fd;
     char *username;
+    char *chatroom;
 } user_info;
 
 /* This can be used to build instances of GTree that index on
@@ -40,8 +40,9 @@ int sockaddr_in_cmp(const void *addr1, const void *addr2)
 
     /* If either of the pointers is NULL or the addresses
        belong to different families, we abort. */
-    g_assert((_addr1 == NULL) || (_addr2 == NULL) ||
-            (_addr1->sin_family != _addr2->sin_family));
+    g_assert(_addr1 != NULL);
+    g_assert(_addr2 != NULL);
+    g_assert(_addr1->sin_family == _addr2->sin_family);
 
     if (_addr1->sin_addr.s_addr < _addr2->sin_addr.s_addr) {
         return -1;
@@ -55,28 +56,19 @@ int sockaddr_in_cmp(const void *addr1, const void *addr2)
     return 0;
 }
 
+/* Connections tree */
+GTree *connections;
+fd_set rfds;
+
 gboolean is_greater(gpointer key, gpointer user, gpointer data) {
-    printf("%p\n",key);
+    UNUSED(key);
     int user_fd = ((struct user_info *) user)->fd;
     int data_fd = *(int *)data;
+    FD_SET(user_fd, &rfds);
     if(user_fd > data_fd) {
         *(int *)data = user_fd;
     }
     return FALSE;
-}
-
-gboolean read_data(gpointer key, gpointer user, gpointer data) {
-    printf("%p\n",key);
-    int user_fd = ((struct user_info *) user)->fd;
-    char message[BUFF_SIZE];
-
-    if(FD_ISSET(user_fd, (fd_set *) data)) {
-        int len = SSL_read(((struct user_info *) user)->ssl, message, sizeof(message) - 1);
-
-        if(len == 0) {
-
-        }
-    }
 }
 
 int ssl_shut_down(SSL *ssl, int sockfd) {
@@ -98,6 +90,100 @@ int ssl_shut_down(SSL *ssl, int sockfd) {
     return 1;
 }
 
+void log_message(char * message, struct sockaddr_in *client) {
+    /* Get local time. */
+    time_t timer;
+    time(&timer);
+    char time_now[20];
+    struct tm* tm_info = localtime(&timer);
+    strftime(time_now, 20, "%F %H:%M:%S", tm_info);
+
+    /*<timestamp> : <client ip>:<client port> connected */
+    printf("%s : %s:%d %s\n", time_now, inet_ntoa(client->sin_addr),
+            client->sin_port, message);
+
+    /* Log the connection to file. */
+    FILE *f;
+    if((f = fopen ("server_log.txt", "a"))) {
+        fprintf (f, "%s : %s:%d %s\n", time_now, inet_ntoa(client->sin_addr),
+            client->sin_port, message);
+        fclose (f);
+    }
+}
+
+gboolean list_users(gpointer key, gpointer value, gpointer data) {
+    struct sockaddr_in *client = (struct sockaddr_in *)key;
+    struct user_info *user = (struct user_info *) value;
+    SSL *write_ssl = ((struct user_info *) data)->ssl;
+
+    gchar * message = g_strjoin(" ", user->username, inet_ntoa(client->sin_addr), "PORT");
+
+    SSL_write(write_ssl, message, strlen(message));
+
+}
+
+/* command      key
+ * ====================
+ * bye / quit   0
+ * game         1
+ * join         2
+ * list         3
+ * roll         4
+ * say          5
+ * user         6
+ * who          7
+ */
+void command(int command_id, gpointer key) {
+    switch(command_id) {
+            case '1':
+                printf("command game\n");
+            case '2':
+                printf("command join\n");
+            case '3':
+                printf("command list\n");
+            case '4':
+                printf("command roll\n");
+            case '5':
+                printf("command say\n");
+            case '6':
+                printf("command user\n");
+            case '7':
+                printf("command who\n");
+                g_tree_foreach(connections, list_users, key);
+            default:
+                printf("invalid command\n");
+    }
+}
+
+gboolean read_data(gpointer key, gpointer user, gpointer data) {
+    int user_fd = ((struct user_info *) user)->fd;
+    SSL *user_ssl = ((struct user_info *) user)->ssl;
+    char message[BUFF_SIZE];
+
+    if(FD_ISSET(user_fd, (fd_set *) data)) {
+        int ret = SSL_read(user_ssl, message, sizeof(message) - 1);
+
+        if(ret <= 0) {
+            ssl_shut_down(((struct user_info *) user)->ssl, user_fd);
+            g_tree_remove(connections, key);
+            /*<timestamp> : <client ip>:<client port> disconnected*/
+            log_message("disconnected", key);
+        }
+
+        if(ret > 0) {
+
+            if(message[0] == '/') {
+                command(message[1], user);
+            } else {
+                message[ret] = '\0';
+                printf ("Received %d chars:'%s'\n", ret, message);
+                SSL_write(user_ssl, "What did you call me", 20);
+            }
+        }
+    }
+    return FALSE;
+}
+
 
 int main(int argc, char **argv)
 {
@@ -105,8 +191,8 @@ int main(int argc, char **argv)
     if(argc > 1) sscanf(argv[1], "%hu", &s_port);
     else exit(1);
 
-    /* Connections tree */
-    GTree *connections = g_tree_new(sockaddr_in_cmp);
+    /* Initialize connections tree */
+    connections = g_tree_new(sockaddr_in_cmp);
 
     /* SSL method and context */
     const SSL_METHOD *meth;
@@ -174,7 +260,6 @@ int main(int argc, char **argv)
     listen(sockfd, 1);
 
     for (;;) {
-        fd_set rfds;
         struct timeval tv;
         int retval;
         int connfd;
@@ -184,10 +269,10 @@ int main(int argc, char **argv)
         FD_ZERO(&rfds);
         FD_SET(sockfd, &rfds);
 
-        printf("highest %d\n", highest_fd);
-
         g_tree_foreach(connections, is_greater, &highest_fd);
 
+        if(FD_ISSET(4, &rfds))
+            printf("highest %d\n", highest_fd);
         printf("highest %d\n", highest_fd);
 
         /* Wait for five seconds. */
@@ -207,9 +292,6 @@ int main(int argc, char **argv)
                 /* For TCP connectios, we first have to accept. */
                 connfd = accept(sockfd, (struct sockaddr *) client, &len);
 
-                printf("Connection from %s, port %d\n", inet_ntoa(client->sin_addr),
-                        client->sin_port);
-
                 ssl = SSL_new(ctx);
 
                 if(ssl) {
@@ -223,7 +305,7 @@ int main(int argc, char **argv)
                         ERR_print_errors_fp(stderr);
                         printf("SSL connection failed. SSL_accept");
                     } else {
-                        printf("SSL connection using %s\n", SSL_get_cipher (ssl));
+                        log_message("connected", client);
 
                         struct user_info *new_user = g_new0(struct user_info, 1);
                         new_user->fd = connfd;
@@ -235,20 +317,6 @@ int main(int argc, char **argv)
                         if(err == -1) {
                             ERR_print_errors_fp(stderr);
                         }
-
-                        /* Receive data from the SSL client */
-                        /*err = SSL_read(ssl, message, sizeof(message) - 1);
-
-                        if(err == -1) {
-                            ERR_print_errors_fp(stderr);
-                        }
-
-                        message[err] = '\0';
-
-                        printf ("Received %d chars:'%s'\n", err, message);
-
-                        //ssl_shut_down(ssl, connfd);
-                        */
                     }
                 } else {
                     printf("SSL connection failed. SSL_new");
