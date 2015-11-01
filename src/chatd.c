@@ -112,14 +112,20 @@ void log_message(char * message, struct sockaddr_in *client) {
 }
 
 gboolean list_users(gpointer key, gpointer value, gpointer data) {
+    printf("list_users\n");
     struct sockaddr_in *client = (struct sockaddr_in *)key;
     struct user_info *user = (struct user_info *) value;
     SSL *write_ssl = ((struct user_info *) data)->ssl;
 
-    gchar * message = g_strjoin(" ", user->username, inet_ntoa(client->sin_addr), "PORT");
+    char port_str[5];
+    sprintf(port_str, "%d", client->sin_port);
+
+    printf("port: %s\n", port_str);
+
+    gchar * message = g_strjoin(" ", (user->username) ? user->username : "NULL", inet_ntoa(client->sin_addr), port_str, NULL);
 
     SSL_write(write_ssl, message, strlen(message));
-
+    return FALSE;
 }
 
 /* command      key
@@ -133,25 +139,41 @@ gboolean list_users(gpointer key, gpointer value, gpointer data) {
  * user         6
  * who          7
  */
-void command(int command_id, gpointer key) {
+void command(int command_id, gpointer key, gpointer user) {
     switch(command_id) {
             case '1':
+                log_message("command game", key);
                 printf("command game\n");
+                break;
             case '2':
+                log_message("command join", key);
                 printf("command join\n");
+                break;
             case '3':
+                log_message("command list", key);
                 printf("command list\n");
+                break;
             case '4':
+                log_message("command roll", key);
                 printf("command roll\n");
+                break;
             case '5':
+                log_message("command say", key);
                 printf("command say\n");
+                break;
             case '6':
+                log_message("command user", key);
                 printf("command user\n");
+                break;
             case '7':
+                log_message("command who", key);
                 printf("command who\n");
-                g_tree_foreach(connections, list_users, key);
+                g_tree_foreach(connections, list_users, user);
+                break;
             default:
+                log_message("invalid command", key);
                 printf("invalid command\n");
+                break;
     }
 }
 
@@ -173,8 +195,9 @@ gboolean read_data(gpointer key, gpointer user, gpointer data) {
         if(ret > 0) {
 
             if(message[0] == '/') {
-                command(message[1], user);
+                command(message[1], key, user);
             } else {
+                log_message("message", key);
                 message[ret] = '\0';
                 printf ("Received %d chars:'%s'\n", ret, message);
                 SSL_write(user_ssl, "What did you call me", 20);
@@ -310,6 +333,7 @@ int main(int argc, char **argv)
                         struct user_info *new_user = g_new0(struct user_info, 1);
                         new_user->fd = connfd;
                         new_user->ssl = ssl;
+                        new_user->username = NULL;
                         g_tree_insert(connections, client, new_user);
 
                         /* Send welcome message */
