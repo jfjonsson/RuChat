@@ -123,7 +123,6 @@ void log_message(char * message, struct sockaddr_in *client) {
 }
 
 gboolean list_users(gpointer key, gpointer value, gpointer data) {
-    printf("list_users\n");
     struct sockaddr_in *client = (struct sockaddr_in *)key;
     struct user_info *user = (struct user_info *) value;
     SSL *write_ssl = ((struct user_info *) data)->ssl;
@@ -165,20 +164,19 @@ void remove_from_room(gpointer user) {
 
 
 void join_room(char *room_name, gpointer user) {
-    printf("Join room [%s]\n", room_name);
-    struct user_info *u = (struct user_info *)user;
+    struct user_info *u = (struct user_info *) user;
     remove_from_room(user);
     struct chatroom* chatroom = g_tree_lookup(chatrooms, room_name);
     if(chatroom) {
         g_free(u->room);
-        u->room = g_strjoin(NULL, room_name, NULL);
+        u->room = strdup(room_name);
         chatroom->room = g_list_insert_sorted(chatroom->room, user, name_cmp);
     } else {
         struct chatroom *new_room = g_new0(struct chatroom, 1);
         new_room->room = g_list_insert_sorted(new_room->room, user, name_cmp);
         g_free(u->room);
-        u->room = g_strjoin(NULL, room_name, NULL);
-        g_tree_insert(chatrooms, g_strjoin(NULL, room_name, NULL), new_room);
+        u->room = strdup(room_name);
+        g_tree_insert(chatrooms, strdup(room_name), new_room);
     }
 }
 
@@ -226,16 +224,15 @@ void command(char *command, gpointer key, gpointer user) {
     }
 }
 
-gboolean read_data(gpointer key, gpointer user, gpointer data) {
-    int user_fd = ((struct user_info *) user)->fd;
-    SSL *user_ssl = ((struct user_info *) user)->ssl;
+gboolean read_data(gpointer key, gpointer value, gpointer data) {
+    struct user_info *user = (struct user_info *) value;
     char message[BUFF_SIZE];
     memset(message, 0, BUFF_SIZE);
-    if(FD_ISSET(user_fd, (fd_set *) data)) {
-        int ret = SSL_read(user_ssl, message, sizeof(message) - 1);
+    if(FD_ISSET(user->fd, (fd_set *) data)) {
+        int ret = SSL_read(user->ssl, message, sizeof(message) - 1);
 
         if(ret <= 0) {
-            ssl_shut_down(((struct user_info *) user)->ssl, user_fd);
+            ssl_shut_down(user->ssl, user->fd);
             remove_from_room(user);
             g_tree_remove(connections, key);
 
@@ -248,10 +245,16 @@ gboolean read_data(gpointer key, gpointer user, gpointer data) {
             if(message[0] == '/') {
                 command(message, key, user);
             } else {
-                /* TODO: write message to chatroom */
-                log_message("message", key);
-                printf ("Received %d chars:'%s'\n", ret, message);
-                SSL_write(user_ssl, "What did you call me", 20);
+                if(user->room) {
+                    gchar *l_message = g_strjoin(NULL, "message to ", user->room, ": ", message, NULL);
+                    log_message(l_message, key);
+
+                    /* TODO: Send message to all users in chat room */
+
+                } else {
+                    log_message("message to no room", key);
+                    SSL_write(user->ssl, "Error: Please join a chatroom to send messages.", 50);
+                }
             }
         }
     }

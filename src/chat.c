@@ -219,6 +219,7 @@ void readline_callback(char *line)
             rl_redisplay();
             return;
         }
+        free(chatroom);
         chatroom = strdup(&(line[i]));
 
         gchar *message = g_strjoin(NULL, "/2 ", chatroom, NULL);
@@ -304,7 +305,7 @@ void readline_callback(char *line)
         return;
     }
     /* Sent the buffer to the server. */
-    snprintf(buffer, 255, "Message: %s\n", line);
+    snprintf(buffer, 255, "%s\n", line);
     SSL_write(server_ssl, buffer, strlen(buffer));
     fsync(STDOUT_FILENO);
 }
