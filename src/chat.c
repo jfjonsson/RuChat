@@ -219,14 +219,16 @@ void readline_callback(char *line)
             rl_redisplay();
             return;
         }
-        char *chatroom = strdup(&(line[i]));
+        chatroom = strdup(&(line[i]));
 
-        /* TODO: Process and send this information to the server. */
-        printf("%s\n", chatroom);
+        gchar *message = g_strjoin(NULL, "/2 ", chatroom, NULL);
+        send_message(message);
 
-        /* Maybe update the prompt. */
+        g_free(message);
+
+        /* TODO: Maybe update the prompt. */
         free(prompt);
-        prompt = NULL; /* What should the new prompt look like? */
+        prompt = g_strjoin(NULL, chatroom, " > ", NULL); /* What should the new prompt look like? */
         rl_set_prompt(prompt);
         return;
     }

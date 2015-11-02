@@ -28,7 +28,7 @@ struct user_info {
     SSL *ssl;
     int fd;
     char *username;
-    char *chatroom;
+    char *room;
 } user_info;
 
 /* This can be used to build instances of GTree that index on
@@ -151,6 +151,18 @@ gboolean list_rooms(gpointer key, gpointer value, gpointer data) {
     return FALSE;
 }
 
+void join_room(char *room_name, gpointer user) {
+    struct user_info *u = (struct user_info *)user;
+    gpointer room = g_tree_lookup(chatrooms, room_name);
+    if(room) {
+        printf("valid room: (%s)\n", room_name);
+        u->room = room_name;
+        g_tree_replace(chatrooms, room_name, g_list_insert_sorted(room, user, name_cmp));
+    } else {
+        printf("invalid room: (%s)\n", room_name);
+    }
+}
+
 /* command      key
  * ====================
  * bye / quit   0
@@ -169,6 +181,7 @@ void command(char *command, gpointer key, gpointer user) {
                 break;
             case '2':
                 log_message("command join", key);
+                join_room(&command[3], user);
                 break;
             case '3':
                 log_message("command list", key);
@@ -357,6 +370,7 @@ int main(int argc, char **argv)
                         new_user->fd = connfd;
                         new_user->ssl = ssl;
                         new_user->username = NULL;
+                        new_user->room = NULL;
                         g_tree_insert(connections, client, new_user);
 
                         /* Send welcome message */
