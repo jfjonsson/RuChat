@@ -219,14 +219,17 @@ void readline_callback(char *line)
             rl_redisplay();
             return;
         }
-        char *chatroom = strdup(&(line[i]));
+        free(chatroom);
+        chatroom = strdup(&(line[i]));
 
-        /* TODO: Process and send this information to the server. */
-        printf("%s\n", chatroom);
+        gchar *message = g_strjoin(NULL, "/2 ", chatroom, NULL);
+        send_message(message);
 
-        /* Maybe update the prompt. */
+        g_free(message);
+
+        /* TODO: Maybe update the prompt. */
         free(prompt);
-        prompt = NULL; /* What should the new prompt look like? */
+        prompt = g_strjoin(NULL, chatroom, " > ", NULL); /* What should the new prompt look like? */
         rl_set_prompt(prompt);
         return;
     }
@@ -302,7 +305,7 @@ void readline_callback(char *line)
         return;
     }
     /* Sent the buffer to the server. */
-    snprintf(buffer, 255, "Message: %s\n", line);
+    snprintf(buffer, 255, "%s\n", line);
     SSL_write(server_ssl, buffer, strlen(buffer));
     fsync(STDOUT_FILENO);
 }
@@ -463,14 +466,6 @@ int main(int argc, char **argv)
             perror("select()");
             break;
         }
-        if (r == 0) {
-            write(STDOUT_FILENO, "No message?\n", 12);
-            fsync(STDOUT_FILENO);
-            /* Whenever you print out a message, call this
-               to reprint the current input line. */
-            rl_redisplay();
-            continue;
-        }
         if (FD_ISSET(STDIN_FILENO, &rfds)) {
             rl_callback_read_char();
         }
@@ -488,7 +483,10 @@ int main(int argc, char **argv)
             }
 
             message[len] = '\0';
-            printf ("Received %d chars:'%s'\n", len, message);
+            write(STDOUT_FILENO, message, strlen(message));
+            write(STDOUT_FILENO, "\n", 1);
+            write(STDOUT_FILENO, prompt, strlen(prompt));
+            fsync(STDOUT_FILENO);
         }
     }
     /* TODO: replace by code to shutdown the connection and exit
