@@ -31,11 +31,6 @@ struct user_info {
     char *chatroom;
 } user_info;
 
-struct chatroom {
-    gchar * room_name;
-    GList * users;
-} chatroom;
-
 /* This can be used to build instances of GTree that index on
    the address of a connection. */
 int sockaddr_in_cmp(const void *addr1, const void *addr2)
@@ -59,6 +54,10 @@ int sockaddr_in_cmp(const void *addr1, const void *addr2)
         return 1;
     }
     return 0;
+}
+
+int name_cmp(const void *str1, const void *str2) {
+    return strcmp(str1, str2);
 }
 
 /* Connections tree */
@@ -132,6 +131,23 @@ gboolean list_users(gpointer key, gpointer value, gpointer data) {
     gchar * message = g_strjoin(NULL, "Username: ",(user->username) ? user->username : "NULL", ", IP: ", inet_ntoa(client->sin_addr), ":", port_str, NULL);
 
     SSL_write(write_ssl, message, strlen(message));
+
+    g_free(message);
+    return FALSE;
+}
+
+gboolean list_rooms(gpointer key, gpointer value, gpointer data) {
+    UNUSED(value);
+    SSL *write_ssl = ((struct user_info *) data)->ssl;
+
+    char users[10];
+    sprintf(users, "%d", g_list_length(value));
+
+    gchar * message = g_strjoin(NULL, " -", (char *) key, ", (", users, ")", NULL);
+
+    SSL_write(write_ssl, message, strlen(message));
+
+    g_free(message);
     return FALSE;
 }
 
@@ -156,6 +172,7 @@ void command(char *command, gpointer key, gpointer user) {
                 break;
             case '3':
                 log_message("command list", key);
+                g_tree_foreach(chatrooms, list_rooms, user);
                 break;
             case '4':
                 log_message("command roll", key);
@@ -215,6 +232,13 @@ int main(int argc, char **argv)
 
     /* Initialize connections tree */
     connections = g_tree_new(sockaddr_in_cmp);
+    chatrooms = g_tree_new(name_cmp);
+
+    GList *lobby = NULL;
+    GList *tsam = NULL;
+
+    g_tree_insert(chatrooms, "Lobby", lobby);
+    g_tree_insert(chatrooms, "TSAM", tsam);
 
     /* SSL method and context */
     const SSL_METHOD *meth;
@@ -353,6 +377,8 @@ int main(int argc, char **argv)
             fflush(stdout);
         }
     }
+
+    /* TODO: free chat rooms */
 
     /* Free the SSL_CTX structure */
     SSL_CTX_free(ctx);
