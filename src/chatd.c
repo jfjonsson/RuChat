@@ -32,7 +32,8 @@ struct user_info {
 } user_info;
 
 struct chatroom {
-
+    gchar * room_name;
+    GList * users;
 } chatroom;
 
 /* This can be used to build instances of GTree that index on
@@ -149,36 +150,28 @@ void command(char *command, gpointer key, gpointer user) {
     switch(command[1]) {
             case '1':
                 log_message("command game", key);
-                printf("command game\n");
                 break;
             case '2':
                 log_message("command join", key);
-                printf("command join\n");
                 break;
             case '3':
                 log_message("command list", key);
-                printf("command list\n");
                 break;
             case '4':
                 log_message("command roll", key);
-                printf("command roll\n");
                 break;
             case '5':
                 log_message("command say", key);
-                printf("command say\n");
                 break;
             case '6':
                 log_message("command user", key);
-                printf("command user\n");
                 break;
             case '7':
                 log_message("command who", key);
-                printf("command who\n");
                 g_tree_foreach(connections, list_users, user);
                 break;
             default:
                 log_message("invalid command", key);
-                printf("invalid command\n");
                 break;
     }
 }
@@ -202,6 +195,7 @@ gboolean read_data(gpointer key, gpointer user, gpointer data) {
             if(message[0] == '/') {
                 command(message, key, user);
             } else {
+                /* TODO: write message to chatroom */
                 log_message("message", key);
                 message[ret] = '\0';
                 printf ("Received %d chars:'%s'\n", ret, message);
@@ -353,8 +347,6 @@ int main(int argc, char **argv)
             }
 
             g_tree_foreach(connections, read_data, &rfds);
-
-            /* TODO: go through connections and find all set fds */
 
         } else {
             fprintf(stdout, "No message in five seconds.\n");

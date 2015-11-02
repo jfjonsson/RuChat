@@ -293,7 +293,6 @@ void readline_callback(char *line)
         return;
     }
     if (strncmp("/who", line, 4) == 0) {
-        /* TODO: Query all available users */
         send_message("/7");
         return;
     }
