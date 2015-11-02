@@ -36,6 +36,7 @@ struct chatroom {
     GList *room;
 } chatroom;
 
+void send_message(gpointer data, gpointer user_data);
 /* This can be used to build instances of GTree that index on
    the address of a connection. */
 int sockaddr_in_cmp(const void *addr1, const void *addr2)
@@ -59,6 +60,13 @@ int sockaddr_in_cmp(const void *addr1, const void *addr2)
         return 1;
     }
     return 0;
+}
+
+//timeout function implementation from
+//http://stackoverflow.com/questions/3930363/implement-time-delay-in-c
+void wait_for (unsigned int secs) {
+    time_t retTime = time(0) + secs;     // Get finishing time.
+    while (time(0) < retTime);    // Loop until it arrives.
 }
 
 int name_cmp(const void *str1, const void *str2) {
@@ -154,41 +162,6 @@ gboolean list_rooms(gpointer key, gpointer value, gpointer data) {
     g_free(message);
     return FALSE;
 }
-
-void authenticate_user(char * command, gpointer key, gpointer user){
-    gchar** command_split = g_strsplit(command, " ", 3);
-    char * username = strdup(command_split[1]);
-    char * userpass = strdup(command_split[2]);
-    struct user_info * current_user = (struct user_info *) user;
-    if(username == NULL || userpass == NULL){
-        gchar * message = g_strconcat(username, " authentication failed", NULL);
-        log_message(message, key);
-        return;
-    } else{
-        gchar * password = g_key_file_get_string(users, "users", username, NULL);
-        if(password == NULL){
-            g_free(current_user->username);
-            current_user->username = strdup(username);
-            g_key_file_set_value(users, "users", username, userpass);
-            gchar * message = g_strconcat(username, " authenticated", NULL);
-            log_message(message, key);
-            return;
-        } else if(g_strcmp0(password, userpass) == 0){
-            g_free(current_user->username);
-            current_user->username = strdup(username);
-            gchar * message = g_strconcat(username, " authenticated", NULL);
-            log_message(message, key);
-            return;
-        } else {  
-            printf("stored password is: %s\n", password);
-            printf("sent password is: %s\n", userpass);
-            gchar * message = g_strconcat(username, " authentication failed", NULL);
-            log_message(message, key);
-            return; 
-        }
-    }
-}
-
 void remove_from_room(gpointer user) {
     struct user_info *u = (struct user_info *)user;
     if(u->room != NULL) {
@@ -196,6 +169,63 @@ void remove_from_room(gpointer user) {
         old_room->room = g_list_remove(old_room->room, user);
     }
 }
+
+void failed_login_attempt(gpointer key, struct user_info * current_user, char * username){
+    gchar *message;
+    current_user->login_attempts += 1;
+    fflush(stdin);
+    send_message(current_user, "authentication failed\n");
+    wait_for(10 * current_user->login_attempts);
+    message = g_strconcat(username, " authentication failed", NULL);
+    log_message(message, key);
+    if(current_user->login_attempts >= 3){
+        ssl_shut_down(current_user->ssl, current_user->fd);
+        remove_from_room(current_user);
+        g_tree_remove(connections, key);
+        /*<timestamp> : <client ip>:<client port> disconnected*/
+        log_message("disconnected", key);
+    }
+    free(message);
+}
+
+void successful_login_attempt(gpointer key, struct user_info * current_user, char * username){
+    gchar *message;
+    current_user->login_attempts = 0;
+    g_free(current_user->username);
+    current_user->username = strdup(username);
+    message = g_strconcat(username, " authenticated", NULL);
+    log_message(message, key);
+    fflush(stdin);
+    send_message(current_user, "login successful\n");
+    free(message);
+}
+
+void authenticate_user(char * command, gpointer key, gpointer user){
+    struct user_info * current_user = (struct user_info *) user;
+    gchar** command_split = g_strsplit(command, ":", 3);
+    char * username;
+    char * userpass;
+
+    if(command_split[2] == NULL || command_split[1] == NULL){
+        failed_login_attempt(key, current_user, command_split[1]);
+    } else {
+        username = strdup(command_split[1]);
+        userpass = strdup(command_split[2]);
+        gchar * password = g_key_file_get_string(users, "users", username, NULL);
+        if(password == NULL){
+            g_key_file_set_value(users, "users", username, userpass);
+            successful_login_attempt(key, current_user, username);
+        } else if(g_strcmp0(password, userpass) == 0){
+            successful_login_attempt(key, current_user, username);
+        } else {  
+            failed_login_attempt(key, current_user, username);
+        }
+    }
+    free(username);
+    free(userpass);
+    free(command_split);
+}
+
 
 void join_room(char *room_name, gpointer user) {
     struct user_info *u = (struct user_info *) user;
@@ -446,6 +476,7 @@ int main(int argc, char **argv)
                         new_user->ssl = ssl;
                         new_user->username = NULL;
                         new_user->room = NULL;
+                        new_user->login_attempts = 0;
                         g_tree_insert(connections, client, new_user);
 
                         /* Send welcome message */
