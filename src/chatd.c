@@ -32,6 +32,10 @@ struct user_info {
     int login_attempts;
 } user_info;
 
+struct chatroom {
+    GList *room;
+} chatroom;
+
 /* This can be used to build instances of GTree that index on
    the address of a connection. */
 int sockaddr_in_cmp(const void *addr1, const void *addr2)
@@ -58,7 +62,7 @@ int sockaddr_in_cmp(const void *addr1, const void *addr2)
 }
 
 int name_cmp(const void *str1, const void *str2) {
-    return strcmp(str1, str2);
+    return g_strcmp0(str1, str2);
 }
 
 /* Connections tree */
@@ -138,11 +142,11 @@ gboolean list_users(gpointer key, gpointer value, gpointer data) {
 }
 
 gboolean list_rooms(gpointer key, gpointer value, gpointer data) {
-    UNUSED(value);
+    printf("Room name: (%s)", (char *)key);
     SSL *write_ssl = ((struct user_info *) data)->ssl;
 
     char users[10];
-    sprintf(users, "%d", g_list_length(value));
+    sprintf(users, "%d", g_list_length(((struct chatroom *)value)->room));
 
     gchar * message = g_strjoin(NULL, " -", (char *) key, ", (", users, ")", NULL);
 
@@ -153,14 +157,26 @@ gboolean list_rooms(gpointer key, gpointer value, gpointer data) {
 }
 
 void join_room(char *room_name, gpointer user) {
+    printf("Join room [%s]\n", room_name);
     struct user_info *u = (struct user_info *)user;
-    gpointer room = g_tree_lookup(chatrooms, room_name);
-    if(room) {
-        printf("valid room: (%s)\n", room_name);
-        u->room = room_name;
-        g_tree_replace(chatrooms, room_name, g_list_insert_sorted(room, user, name_cmp));
+    if(u->room != NULL) {
+        printf("Leaving room [%s]\n", u->room);
+        struct chatroom* old_room = g_tree_lookup(chatrooms, u->room);
+        old_room->room = g_list_remove(old_room->room, user);
+    }
+    struct chatroom* chatroom = g_tree_lookup(chatrooms, room_name);
+    if(chatroom) {
+        printf("valid room_name (%s)", room_name);
+        g_free(u->room);
+        u->room = g_strjoin(NULL, room_name, NULL);
+        chatroom->room = g_list_insert_sorted(chatroom->room, user, name_cmp);
     } else {
-        printf("invalid room: (%s)\n", room_name);
+        struct chatroom *new_room = g_new0(struct chatroom, 1);
+        new_room->room = g_list_insert_sorted(new_room->room, user, name_cmp);
+        g_free(u->room);
+        u->room = g_strjoin(NULL, room_name, NULL);
+        g_tree_insert(chatrooms, g_strjoin(NULL, room_name, NULL), new_room);
+        printf("new room_name (%s)", room_name);
     }
 }
 
@@ -219,17 +235,20 @@ gboolean read_data(gpointer key, gpointer user, gpointer data) {
         if(ret <= 0) {
             ssl_shut_down(((struct user_info *) user)->ssl, user_fd);
             g_tree_remove(connections, key);
+
+            /* TODO: remove from chatroom */
+
             /*<timestamp> : <client ip>:<client port> disconnected*/
             log_message("disconnected", key);
         }
 
         if(ret > 0) {
+            message[ret] = '\0';
             if(message[0] == '/') {
                 command(message, key, user);
             } else {
                 /* TODO: write message to chatroom */
                 log_message("message", key);
-                message[ret] = '\0';
                 printf ("Received %d chars:'%s'\n", ret, message);
                 SSL_write(user_ssl, "What did you call me", 20);
             }
@@ -249,8 +268,8 @@ int main(int argc, char **argv)
     connections = g_tree_new(sockaddr_in_cmp);
     chatrooms = g_tree_new(name_cmp);
 
-    GList *lobby = NULL;
-    GList *tsam = NULL;
+    struct chatroom *lobby = g_new0(struct chatroom, 1);
+    struct chatroom *tsam= g_new0(struct chatroom, 1);
 
     g_tree_insert(chatrooms, "Lobby", lobby);
     g_tree_insert(chatrooms, "TSAM", tsam);
@@ -376,7 +395,7 @@ int main(int argc, char **argv)
                         g_tree_insert(connections, client, new_user);
 
                         /* Send welcome message */
-                        err = SSL_write(ssl, "Welcome!", 8);
+                        err = SSL_write(ssl, "Server: Welcome!", 16);
                         if(err == -1) {
                             ERR_print_errors_fp(stderr);
                         }
@@ -395,6 +414,7 @@ int main(int argc, char **argv)
     }
 
     /* TODO: free chat rooms */
+    /* TODO: free everything */
 
     /* Free the SSL_CTX structure */
     SSL_CTX_free(ctx);

@@ -465,14 +465,6 @@ int main(int argc, char **argv)
             perror("select()");
             break;
         }
-        if (r == 0) {
-            write(STDOUT_FILENO, "No message?\n", 12);
-            fsync(STDOUT_FILENO);
-            /* Whenever you print out a message, call this
-               to reprint the current input line. */
-            rl_redisplay();
-            continue;
-        }
         if (FD_ISSET(STDIN_FILENO, &rfds)) {
             rl_callback_read_char();
         }
@@ -490,7 +482,10 @@ int main(int argc, char **argv)
             }
 
             message[len] = '\0';
-            printf ("Received %d chars:'%s'\n", len, message);
+            write(STDOUT_FILENO, message, strlen(message));
+            write(STDOUT_FILENO, "\n", 1);
+            write(STDOUT_FILENO, prompt, strlen(prompt));
+            fsync(STDOUT_FILENO);
         }
     }
     /* TODO: replace by code to shutdown the connection and exit
