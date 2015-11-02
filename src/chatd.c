@@ -31,6 +31,10 @@ struct user_info {
     char *chatroom;
 } user_info;
 
+struct chatroom {
+
+} chatroom;
+
 /* This can be used to build instances of GTree that index on
    the address of a connection. */
 int sockaddr_in_cmp(const void *addr1, const void *addr2)
@@ -59,6 +63,7 @@ int sockaddr_in_cmp(const void *addr1, const void *addr2)
 /* Connections tree */
 GTree *connections;
 GTree *chatrooms;
+GTree *users;
 fd_set rfds;
 
 gboolean is_greater(gpointer key, gpointer user, gpointer data) {

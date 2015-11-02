@@ -1,6 +1,2 @@
 *.o
-*.key
-*.crt
-*.pem
-chat
-chatd
+server_log.txt
