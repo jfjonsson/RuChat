@@ -140,8 +140,8 @@ gboolean list_users(gpointer key, gpointer value, gpointer data) {
  * user         6
  * who          7
  */
-void command(int command_id, gpointer key, gpointer user) {
-    switch(command_id) {
+void command(char *command, gpointer key, gpointer user) {
+    switch(command[1]) {
             case '1':
                 log_message("command game", key);
                 printf("command game\n");
@@ -194,9 +194,8 @@ gboolean read_data(gpointer key, gpointer user, gpointer data) {
         }
 
         if(ret > 0) {
-
             if(message[0] == '/') {
-                command(message[1], key, user);
+                command(message, key, user);
             } else {
                 log_message("message", key);
                 message[ret] = '\0';

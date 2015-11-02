@@ -205,6 +205,7 @@ void readline_callback(char *line)
             rl_redisplay();
             return;
         }
+        send_message("/1");
         /* Start game */
         return;
     }
@@ -231,10 +232,12 @@ void readline_callback(char *line)
     }
     if (strncmp("/list", line, 5) == 0) {
         /* TODO: Query all available chat rooms */
+        send_message("/3");
         return;
     }
     if (strncmp("/roll", line, 5) == 0) {
         /* TODO: roll dice and declare winner. */
+        send_message("/4");
         return;
     }
     if (strncmp("/say", line, 4) == 0) {
