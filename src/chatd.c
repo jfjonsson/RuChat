@@ -29,6 +29,7 @@ struct user_info {
     int fd;
     char *username;
     char *room;
+    int login_attempts;
 } user_info;
 
 /* This can be used to build instances of GTree that index on
@@ -195,6 +196,7 @@ void command(char *command, gpointer key, gpointer user) {
                 break;
             case '6':
                 log_message("command user", key);
+                printf("%s\n", command);
                 break;
             case '7':
                 log_message("command who", key);
@@ -210,7 +212,7 @@ gboolean read_data(gpointer key, gpointer user, gpointer data) {
     int user_fd = ((struct user_info *) user)->fd;
     SSL *user_ssl = ((struct user_info *) user)->ssl;
     char message[BUFF_SIZE];
-
+    memset(message, 0, BUFF_SIZE);
     if(FD_ISSET(user_fd, (fd_set *) data)) {
         int ret = SSL_read(user_ssl, message, sizeof(message) - 1);
 
