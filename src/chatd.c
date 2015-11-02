@@ -224,6 +224,16 @@ void command(char *command, gpointer key, gpointer user) {
     }
 }
 
+void send_message(gpointer data, gpointer user_data) {
+    struct user_info *user = (struct user_info *) data;
+    char *message = (char *) user_data;
+
+    int write_err = SSL_write(user->ssl, message, strlen(message));
+    if(write_err == -1) {
+        ERR_print_errors_fp(stderr);
+    }
+}
+
 gboolean read_data(gpointer key, gpointer value, gpointer data) {
     struct user_info *user = (struct user_info *) value;
     char message[BUFF_SIZE];
@@ -249,11 +259,16 @@ gboolean read_data(gpointer key, gpointer value, gpointer data) {
                     gchar *l_message = g_strjoin(NULL, "message to ", user->room, ": ", message, NULL);
                     log_message(l_message, key);
 
-                    /* TODO: Send message to all users in chat room */
+                    /* TODO: Set message sender username or anon+port */
+                    struct chatroom *room = g_tree_lookup(chatrooms, user->room);
+                    g_list_foreach(room->room, send_message, message);
 
                 } else {
                     log_message("message to no room", key);
-                    SSL_write(user->ssl, "Error: Please join a chatroom to send messages.", 50);
+                    int write_err = SSL_write(user->ssl, "Error: Please join a chatroom to send messages.", 50);
+                    if(write_err == -1) {
+                        ERR_print_errors_fp(stderr);
+                    }
                 }
             }
         }

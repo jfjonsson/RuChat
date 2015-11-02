@@ -286,18 +286,9 @@ void readline_callback(char *line)
         char passwd[48];
         getpasswd("Password: ", passwd, 48);
 
-        /* TODO: Process and send this information to the server. */
-        printf("%s\n", new_user);
-        printf("%s\n", passwd);
         char * return_message = g_strconcat("/6", " ", new_user, " ", passwd, NULL);
-        printf("%s\n", return_message);
-        //char * return_message = "/6 bla";
         send_message(return_message);
- 
-        /* Maybe update the prompt. */
-        free(prompt);
-        prompt = NULL; /* What should the new prompt look like? */
-        rl_set_prompt(prompt);
+
         return;
     }
     if (strncmp("/who", line, 4) == 0) {
