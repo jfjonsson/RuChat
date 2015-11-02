@@ -170,33 +170,36 @@ gboolean list_rooms(gpointer key, gpointer value, gpointer data) {
     return FALSE;
 }
 
-gboolean authenticate_user(char * command, gpointer key, gpointer user){
+void authenticate_user(char * command, gpointer key, gpointer user){
     gchar** command_split = g_strsplit(command, " ", 3);
+    char * username = strdup(command_split[1]);
+    char * userpass = strdup(command_split[2]);
     struct user_info * current_user = (struct user_info *) user;
-    if(command_split[1] == NULL || command_split[2] == NULL){
-        gchar * message = g_strconcat(command_split[1], " authentication failed", NULL);
+    if(username == NULL || userpass == NULL){
+        gchar * message = g_strconcat(username, " authentication failed", NULL);
         log_message(message, key);
-        return FALSE;
+        return;
     } else{
-        gchar * password = g_key_file_get_string(users, "users", command_split[1], NULL);
+        gchar * password = g_key_file_get_string(users, "users", username, NULL);
         if(password == NULL){
             g_free(current_user->username);
-            current_user->username = strdup(command_split[1]);
-            g_key_file_set_value(users, "users", command_split[1], command_split[2]);
-            //printf("username: %s", current_user->username);
-            gchar * message = g_strconcat(command_split[1], " authenticated", NULL);
+            current_user->username = strdup(username);
+            g_key_file_set_value(users, "users", username, userpass);
+            gchar * message = g_strconcat(username, " authenticated", NULL);
             log_message(message, key);
-            return TRUE;
-        } else if(password == command_split[2]){
+            return;
+        } else if(g_strcmp0(password, userpass) == 0){
             g_free(current_user->username);
-            current_user->username = strdup(command_split[1]);
-            return TRUE;
-        }
-
-        else {
-            gchar * message = g_strconcat(command_split[1], " authentication failed", NULL);
+            current_user->username = strdup(username);
+            gchar * message = g_strconcat(username, " authenticated", NULL);
             log_message(message, key);
-            return FALSE; 
+            return;
+        } else {  
+            printf("stored password is: %s\n", password);
+            printf("sent password is: %s\n", userpass);
+            gchar * message = g_strconcat(username, " authentication failed", NULL);
+            log_message(message, key);
+            return; 
         }
     }
 }
