@@ -60,10 +60,12 @@ int sockaddr_in_cmp(const void *addr1, const void *addr2)
     }
     return 0;
 }
+int sockaddr_in_cmp_data(const void *addr1, const void *addr2, gpointer data) { UNUSED(data); return sockaddr_in_cmp(addr1, addr2); }
 
 int name_cmp(const void *str1, const void *str2) {
     return g_strcmp0(str1, str2);
 }
+int name_cmp_data(const void *str1, const void *str2, gpointer data) { UNUSED(data); return name_cmp(str1, str2); }
 
 /* Connections tree */
 GTree *connections;
@@ -71,6 +73,19 @@ GTree *chatrooms;
 GKeyFile *users;
 fd_set rfds;
 
+/* TRUE when server is active FALSE when server should stop. */
+static int active = TRUE;
+
+void sigint_handler(int signum)
+{
+    active = FALSE;
+    UNUSED(signum);
+
+    /* We should not use printf inside of signal handlers, this is not
+     * considered safe. We may, however, use write() and fsync(). */
+    write(STDOUT_FILENO, "Terminated.\n", 12);
+    fsync(STDOUT_FILENO);
+}
 
 gboolean is_greater(gpointer key, gpointer user, gpointer data) {
     UNUSED(key);
@@ -176,10 +191,9 @@ gboolean authenticate_user(char * command, gpointer key, gpointer user){
             g_free(current_user->username);
             current_user->username = strdup(command_split[1]);
             return TRUE;
-        } 
+        }
 
         else {
-            
             gchar * message = g_strconcat(command_split[1], " authentication failed", NULL);
             log_message(message, key);
             return FALSE; 
@@ -266,6 +280,14 @@ void send_message(gpointer data, gpointer user_data) {
     }
 }
 
+gboolean shut_down(gpointer key, gpointer value, gpointer data) {
+    UNUSED(key);
+    UNUSED(data);
+    struct user_info *user = (struct user_info *) value;
+    ssl_shut_down(user->ssl, user->fd);
+    return FALSE;
+}
+
 gboolean read_data(gpointer key, gpointer value, gpointer data) {
     struct user_info *user = (struct user_info *) value;
     char message[BUFF_SIZE];
@@ -294,7 +316,7 @@ gboolean read_data(gpointer key, gpointer value, gpointer data) {
                     /* TODO: Set message sender username or anon+port */
                     struct chatroom *room = g_tree_lookup(chatrooms, user->room);
                     g_list_foreach(room->room, send_message, message);
-
+                    free(l_message);
                 } else {
                     log_message("message to no room", key);
                     int write_err = SSL_write(user->ssl, "Error: Please join a chatroom to send messages.", 50);
@@ -308,17 +330,31 @@ gboolean read_data(gpointer key, gpointer value, gpointer data) {
     return FALSE;
 }
 
+void key_dest_func(gpointer key) {
+    free(key);
+}
+void data_dest_func_user(gpointer data) {
+    struct user_info *user = (struct user_info*) data;
+    free(user->username);
+    free(user->room);
+    free(user);
+}
+void data_dest_func_list(gpointer data) {
+    g_list_free_full((GList *) data, data_dest_func_user);
+}
 
 int main(int argc, char **argv)
 {
+    signal(SIGINT, sigint_handler);
+
     unsigned short int s_port; /* Check that port was provided */
     if(argc > 1) sscanf(argv[1], "%hu", &s_port);
     else exit(1);
 
     /* Initialize connections tree */
-    connections = g_tree_new(sockaddr_in_cmp);
-    chatrooms = g_tree_new(name_cmp);
-    users = g_key_file_new();    
+    connections = g_tree_new_full(sockaddr_in_cmp_data, NULL, key_dest_func, data_dest_func_user);
+    chatrooms = g_tree_new_full(name_cmp_data, NULL, key_dest_func, data_dest_func_list);
+    users = g_key_file_new();
 
     struct chatroom *lobby = g_new0(struct chatroom, 1);
     struct chatroom *tsam= g_new0(struct chatroom, 1);
@@ -391,7 +427,7 @@ int main(int argc, char **argv)
      */
     listen(sockfd, 1);
 
-    for (;;) {
+    while(active) {
         struct timeval tv;
         int retval;
         int connfd;
@@ -467,6 +503,9 @@ int main(int argc, char **argv)
 
     /* TODO: free chat rooms */
     /* TODO: free everything */
+    g_tree_foreach(connections, shut_down, NULL);
+    g_tree_destroy(connections);
+    g_tree_destroy(chatrooms);
 
     /* Free the SSL_CTX structure */
     SSL_CTX_free(ctx);
