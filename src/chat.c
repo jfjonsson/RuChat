@@ -30,6 +30,8 @@
 /* Key and certificate */
 #define RSA_CLIENT_CA_CERT  "server.pem"
 
+#define UNUSED(x) (void)(x)
+
 /* If x is null we exit */
 #define RETURN_NULL(x) if ((x) == NULL) exit (1)
 
@@ -44,7 +46,7 @@
 /* This variable is 1 while the client is active and becomes 0 after
    a quit command to terminate the client and to clean up the
    connection. */
-static int active = 1;
+static int active = TRUE;
 
 
 /* To read a password without echoing it to the console.
@@ -121,8 +123,8 @@ int ssl_shut_down(SSL *ssl, int sockfd) {
    select with this error. */
 void sigint_handler(int signum)
 {
-    active = 0;
-    signum++;
+    active = FALSE;
+    UNUSED(signum);
 
     /* We should not use printf inside of signal handlers, this is not
      * considered safe. We may, however, use write() and fsync(). */
@@ -172,6 +174,7 @@ void send_message(char * message) {
  * say          5
  * user         6
  * who          7
+ * nick         8
  */
 
 /* When a line is entered using the readline library, this function
@@ -302,6 +305,25 @@ void readline_callback(char *line)
     }
     if (strncmp("/who", line, 4) == 0) {
         send_message("/7");
+        return;
+    }
+
+    if(strncmp("/nick", line, 5) == 0) {
+        int i = 5;
+        /* Skip whitespace */
+        while (line[i] != '\0' && isspace(line[i])) { i++; }
+        if (line[i] == '\0') {
+            write(STDOUT_FILENO, "Usage: /nick nickname\n", 22);
+            fsync(STDOUT_FILENO);
+            rl_redisplay();
+            return;
+        }
+        gchar *nick = g_strdup(&(line[i]));
+        gchar *return_message = g_strconcat("/7 ", nick, NULL);
+        send_message(return_message);
+
+        g_free(nick);
+        g_free(return_message);
         return;
     }
     /* Sent the buffer to the server. */
@@ -492,8 +514,11 @@ int main(int argc, char **argv)
     /* TODO: replace by code to shutdown the connection and exit
        the program. */
 
-    ssl_shut_down(server_ssl, server_fd);
-
     printf("Exiting!\n");
+
+    /* Shutdown and free */
+    ssl_shut_down(server_ssl, server_fd);
+    SSL_CTX_free(ssl_ctx);
+    free(prompt);
     g_free(s_ipaddr);
 }
