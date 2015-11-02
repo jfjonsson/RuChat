@@ -142,7 +142,6 @@ gboolean list_users(gpointer key, gpointer value, gpointer data) {
 }
 
 gboolean list_rooms(gpointer key, gpointer value, gpointer data) {
-    printf("Room name: (%s)", (char *)key);
     SSL *write_ssl = ((struct user_info *) data)->ssl;
 
     char users[10];
@@ -156,17 +155,21 @@ gboolean list_rooms(gpointer key, gpointer value, gpointer data) {
     return FALSE;
 }
 
-void join_room(char *room_name, gpointer user) {
-    printf("Join room [%s]\n", room_name);
+void remove_from_room(gpointer user) {
     struct user_info *u = (struct user_info *)user;
     if(u->room != NULL) {
-        printf("Leaving room [%s]\n", u->room);
         struct chatroom* old_room = g_tree_lookup(chatrooms, u->room);
         old_room->room = g_list_remove(old_room->room, user);
     }
+}
+
+
+void join_room(char *room_name, gpointer user) {
+    printf("Join room [%s]\n", room_name);
+    struct user_info *u = (struct user_info *)user;
+    remove_from_room(user);
     struct chatroom* chatroom = g_tree_lookup(chatrooms, room_name);
     if(chatroom) {
-        printf("valid room_name (%s)", room_name);
         g_free(u->room);
         u->room = g_strjoin(NULL, room_name, NULL);
         chatroom->room = g_list_insert_sorted(chatroom->room, user, name_cmp);
@@ -176,7 +179,6 @@ void join_room(char *room_name, gpointer user) {
         g_free(u->room);
         u->room = g_strjoin(NULL, room_name, NULL);
         g_tree_insert(chatrooms, g_strjoin(NULL, room_name, NULL), new_room);
-        printf("new room_name (%s)", room_name);
     }
 }
 
@@ -234,9 +236,8 @@ gboolean read_data(gpointer key, gpointer user, gpointer data) {
 
         if(ret <= 0) {
             ssl_shut_down(((struct user_info *) user)->ssl, user_fd);
+            remove_from_room(user);
             g_tree_remove(connections, key);
-
-            /* TODO: remove from chatroom */
 
             /*<timestamp> : <client ip>:<client port> disconnected*/
             log_message("disconnected", key);
