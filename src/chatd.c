@@ -64,8 +64,9 @@ int name_cmp(const void *str1, const void *str2) {
 /* Connections tree */
 GTree *connections;
 GTree *chatrooms;
-GTree *users;
+GKeyFile *users;
 fd_set rfds;
+
 
 gboolean is_greater(gpointer key, gpointer user, gpointer data) {
     UNUSED(key);
@@ -152,6 +153,39 @@ gboolean list_rooms(gpointer key, gpointer value, gpointer data) {
     return FALSE;
 }
 
+gboolean authenticate_user(char * command, gpointer key, gpointer user){
+    gchar** command_split = g_strsplit(command, " ", 3);
+    struct user_info * current_user = (struct user_info *) user;
+    if(command_split[1] == NULL || command_split[2] == NULL){
+        gchar * message = g_strconcat(command_split[1], " authentication failed", NULL);
+        log_message(message, key);
+        return FALSE;
+    } else{
+        gchar * password = g_key_file_get_string(users, "users", command_split[1], NULL);
+        if(password == NULL){
+            g_free(current_user->username);
+            current_user->username = strdup(command_split[1]);
+            g_key_file_set_value(users, "users", command_split[1], command_split[2]);
+            //printf("username: %s", current_user->username);
+            gchar * message = g_strconcat(command_split[1], " authenticated", NULL);
+            log_message(message, key);
+            return TRUE;
+        } else if(password == command_split[2]){
+            g_free(current_user->username);
+            current_user->username = strdup(command_split[1]);
+            return TRUE;
+        } 
+
+        else {
+            
+            gchar * message = g_strconcat(command_split[1], " authentication failed", NULL);
+            log_message(message, key);
+            return FALSE; 
+        }
+    }
+}
+
+
 /* command      key
  * ====================
  * bye / quit   0
@@ -183,7 +217,7 @@ void command(char *command, gpointer key, gpointer user) {
                 break;
             case '6':
                 log_message("command user", key);
-                printf("%s\n", command);
+                authenticate_user(command, key, user);
                 break;
             case '7':
                 log_message("command who", key);
@@ -235,6 +269,7 @@ int main(int argc, char **argv)
     /* Initialize connections tree */
     connections = g_tree_new(sockaddr_in_cmp);
     chatrooms = g_tree_new(name_cmp);
+    users = g_key_file_new();    
 
     GList *lobby = NULL;
     GList *tsam = NULL;
