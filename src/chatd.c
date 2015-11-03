@@ -131,6 +131,7 @@ gchar *hash_password(char * salt, char *password, char *username){
 /* TRUE when server is active FALSE when server should stop. */
 static int active = TRUE;
 
+/* Signal handler sets server to inactive. */
 void sigint_handler(int signum)
 {
     active = FALSE;
@@ -142,6 +143,7 @@ void sigint_handler(int signum)
     fsync(STDOUT_FILENO);
 }
 
+/* Find the connection with the largest fd */
 gboolean is_greater(gpointer key, gpointer user, gpointer data) {
     UNUSED(key);
     int user_fd = ((struct user_info *) user)->fd;
@@ -153,6 +155,7 @@ gboolean is_greater(gpointer key, gpointer user, gpointer data) {
     return FALSE;
 }
 
+/* Shutdown a connection to a client */
 int ssl_shut_down(SSL *ssl, int sockfd) {
     /* Shutdown the client side of the SSL connection */
     int err = SSL_shutdown(ssl);
@@ -172,6 +175,7 @@ int ssl_shut_down(SSL *ssl, int sockfd) {
     return 1;
 }
 
+/* Log a message to file and screen */
 void log_message(char * message, struct sockaddr_in *client) {
     /* Get local time. */
     time_t timer;
@@ -193,6 +197,7 @@ void log_message(char * message, struct sockaddr_in *client) {
     }
 }
 
+/* travers list of connections and send the requesting user the other users online. */
 gboolean list_users(gpointer key, gpointer value, gpointer data) {
     struct sockaddr_in *client = (struct sockaddr_in *)key;
     struct user_info *user = (struct user_info *) value;
@@ -211,9 +216,13 @@ gboolean list_users(gpointer key, gpointer value, gpointer data) {
     return FALSE;
 }
 
+/* Travers all rooms and send the requesting user what
+ * rooms are open and how many users are in them
+ */
 gboolean list_rooms(gpointer key, gpointer value, gpointer data) {
     SSL *write_ssl = ((struct user_info *) data)->ssl;
 
+    /* Get the number of users in the room */
     char num_users[10];
     sprintf(num_users, "%d", g_list_length(((struct chatroom *)value)->room));
 
@@ -224,6 +233,8 @@ gboolean list_rooms(gpointer key, gpointer value, gpointer data) {
     g_free(message);
     return FALSE;
 }
+
+/* Remove a user from a room */
 void remove_from_room(gpointer user) {
     struct user_info *u = (struct user_info *)user;
     if(u->room != NULL) {
@@ -232,6 +243,9 @@ void remove_from_room(gpointer user) {
     }
 }
 
+/* Notify a user that his authentication failed.
+ * Terminates the users connection if he fails three times.
+ */
 void failed_login_attempt(gpointer key, struct user_info * current_user, char * username){
     gchar *message;
     current_user->login_attempts += 1;
@@ -250,6 +264,7 @@ void failed_login_attempt(gpointer key, struct user_info * current_user, char * 
     free(message);
 }
 
+/* Login succeeded  */
 void successful_login_attempt(gpointer key, struct user_info * current_user, char * username){
     gchar *message;
     current_user->login_attempts = 0;
@@ -263,6 +278,7 @@ void successful_login_attempt(gpointer key, struct user_info * current_user, cha
     free(message);
 }
 
+/* Check the user login credentials*/
 void authenticate_user(char * command, gpointer key, gpointer user){
     struct user_info * current_user = (struct user_info *) user;
     gchar** command_split = g_strsplit(command, ":", 3);
@@ -291,6 +307,10 @@ void authenticate_user(char * command, gpointer key, gpointer user){
     g_strfreev(command_split);
 }
 
+/* Add a user to a chat room, if room requested
+ * does not exist the room is created, user also leaves
+ * room he currently resides in when joining a new one
+ */
 void join_room(char *room_name, gpointer user) {
     struct user_info *u = (struct user_info *) user;
     remove_from_room(user);
@@ -308,6 +328,9 @@ void join_room(char *room_name, gpointer user) {
     }
 }
 
+/* Travers all connected users to find the recipient of the private
+ * message and send it to him.
+ */
 gboolean send_private_message(gpointer key, gpointer value, gpointer data) {
     struct user_info *user = (struct user_info *) value;
     struct pm *message = (struct pm *) data;
@@ -323,6 +346,7 @@ gboolean send_private_message(gpointer key, gpointer value, gpointer data) {
     return FALSE;
 }
 
+/* Private message setup */
 void private_message(gchar *command, struct sockaddr_in* client, struct user_info* user) {
     UNUSED(client);
     gchar **split = g_strsplit(command, " ", 2);
@@ -394,6 +418,7 @@ void command(char *command, gpointer key, gpointer user) {
     }
 }
 
+/* Send a message to a user */
 void send_message(gpointer data, gpointer user_data) {
     struct user_info *user = (struct user_info *) data;
     char *message = (char *) user_data;
@@ -404,6 +429,7 @@ void send_message(gpointer data, gpointer user_data) {
     }
 }
 
+/* Check all users for timeout. */
 gboolean check_timeout(gpointer key, gpointer value, gpointer data) {
     UNUSED(data);
     struct user_info *user = (struct user_info *) value;
@@ -418,6 +444,7 @@ gboolean check_timeout(gpointer key, gpointer value, gpointer data) {
     return FALSE;
 }
 
+/* Travers all connections and disconnect them. */
 gboolean shut_down(gpointer key, gpointer value, gpointer data) {
     UNUSED(key);
     UNUSED(data);
@@ -426,6 +453,7 @@ gboolean shut_down(gpointer key, gpointer value, gpointer data) {
     return FALSE;
 }
 
+/* Travers all connections and read from them if fd was set. */
 gboolean read_data(gpointer key, gpointer value, gpointer data) {
     struct user_info *user = (struct user_info *) value;
     struct sockaddr_in *client = (struct sockaddr_in *) key;
@@ -459,7 +487,6 @@ gboolean read_data(gpointer key, gpointer value, gpointer data) {
 
                     g_free(l_message);
                     l_message = g_strconcat(identity, ": ", message, NULL);
-                    /* TODO: Set message sender nick or ip+port */
                     struct chatroom *room = g_tree_lookup(chatrooms, user->room);
                     g_list_foreach(room->room, send_message, l_message);
                     g_free(l_message);
@@ -477,6 +504,7 @@ gboolean read_data(gpointer key, gpointer value, gpointer data) {
     return FALSE;
 }
 
+/* Destructor functions for trees */
 void key_dest_func(gpointer key) {
     free((struct sockaddr_in *) key);
 }
@@ -497,6 +525,7 @@ void data_dest_func_list(gpointer data) {
 
 int main(int argc, char **argv)
 {
+    /* Initialize signal handler */
     signal(SIGINT, sigint_handler);
 
     unsigned short int s_port; /* Check that port was provided */
@@ -593,10 +622,6 @@ int main(int argc, char **argv)
 
         g_tree_foreach(connections, is_greater, &highest_fd);
 
-        if(FD_ISSET(4, &rfds))
-            printf("highest %d\n", highest_fd);
-        printf("highest %d\n", highest_fd);
-
         /* Wait for five seconds. */
         tv.tv_sec = 5;
         tv.tv_usec = 0;
@@ -629,6 +654,7 @@ int main(int argc, char **argv)
                     } else {
                         log_message("connected", client);
 
+                        /* Construct new user connection */
                         struct user_info *new_user = g_new0(struct user_info, 1);
                         new_user->fd = connfd;
                         new_user->ssl = ssl;
@@ -659,7 +685,7 @@ int main(int argc, char **argv)
     }
 
     printf("Exiting\n");
-    /* TODO: free everything */
+    /* free everything */
     g_tree_foreach(connections, shut_down, NULL);
     g_tree_destroy(connections);
     g_tree_destroy(chatrooms);

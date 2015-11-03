@@ -251,7 +251,7 @@ void readline_callback(char *line)
         return;
     }
     if (strncmp("/roll", line, 5) == 0) {
-        /* TODO: roll dice and declare winner. */
+        /* Roll dice and declare winner. */
         send_message("/4");
         rl_free(line);
         return;
@@ -495,7 +495,7 @@ int main(int argc, char **argv)
         int r = select(((server_fd > STDIN_FILENO) ? server_fd : STDIN_FILENO) + 1, &rfds, NULL, NULL, &timeout);
         if (r < 0) {
             if (errno == EINTR) {
-                /* TODO: This should either retry the call or
+                /* This should either retry the call or
                    exit the loop, depending on whether we
                    received a SIGTERM. */
                 continue;
