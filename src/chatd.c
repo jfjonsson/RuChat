@@ -444,13 +444,14 @@ gboolean read_data(gpointer key, gpointer value, gpointer data) {
                 command(message, key, user);
             } else {
                 if(user->room) {
-                    gchar *l_message = g_strconcat("message to ", user->room, ": ", message, NULL);
+                    gchar *l_message = g_strconcat("message to ", user->room, NULL);
                     log_message(l_message, key);
 
                     char port_str[5];
                     sprintf(port_str, "%d", client->sin_port);
                     gchar *identity = (user->nick) ? strdup(user->nick) : g_strconcat(inet_ntoa(client->sin_addr), ":", port_str, NULL);
 
+                    g_free(l_message);
                     l_message = g_strconcat(identity, ": ", message, NULL);
                     /* TODO: Set message sender nick or ip+port */
                     struct chatroom *room = g_tree_lookup(chatrooms, user->room);
@@ -471,7 +472,7 @@ gboolean read_data(gpointer key, gpointer value, gpointer data) {
 }
 
 void key_dest_func(gpointer key) {
-    free(key);
+    free((struct sockaddr_in *) key);
 }
 void data_dest_func_user(gpointer data) {
     if(data) {
@@ -669,6 +670,7 @@ int main(int argc, char **argv)
     SSL_CTX_free(ctx);
     ERR_remove_state(0);
     ERR_free_strings();
+    EVP_MD_CTX_cleanup(mdctx);
     EVP_cleanup();
     CRYPTO_cleanup_all_ex_data();
 
