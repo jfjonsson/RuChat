@@ -350,6 +350,7 @@ gboolean shut_down(gpointer key, gpointer value, gpointer data) {
 
 gboolean read_data(gpointer key, gpointer value, gpointer data) {
     struct user_info *user = (struct user_info *) value;
+    struct sockaddr_in *client = (struct sockaddr_in *) key;
     char message[BUFF_SIZE];
     memset(message, 0, BUFF_SIZE);
     if(FD_ISSET(user->fd, (fd_set *) data)) {
@@ -373,7 +374,9 @@ gboolean read_data(gpointer key, gpointer value, gpointer data) {
                     gchar *l_message = g_strconcat("message to ", user->room, ": ", message, NULL);
                     log_message(l_message, key);
 
-                    gchar *identity = (user->nick) ? strdup(user->nick) : strdup("Anon");
+                    char port_str[5];
+                    sprintf(port_str, "%d", client->sin_port);
+                    gchar *identity = (user->nick) ? strdup(user->nick) : g_strconcat(inet_ntoa(client->sin_addr), ":", port_str, NULL);
 
                     l_message = g_strconcat(identity, ": ", message, NULL);
                     /* TODO: Set message sender nick or ip+port */
