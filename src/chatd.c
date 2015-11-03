@@ -16,6 +16,7 @@
 #include <openssl/crypto.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <openssl/evp.h>
 
 #define RSA_SERVER_CERT  "server.crt"
 #define RSA_SERVER_KEY   "server.key"
@@ -93,8 +94,25 @@ GTree *chatrooms;
 GKeyFile *users;
 fd_set rfds;
 
-/* random string used for hashing passwords. */
+/* configuration for hashing passwords. */
 char *salt;
+EVP_MD_CTX *mdctx;
+const EVP_MD *md;
+
+gchar *hash_password(char * salt, char *password){
+    unsigned int md_len;
+    unsigned char md_value[EVP_MAX_MD_SIZE];
+    gchar *userpass;
+    EVP_DigestInit_ex(mdctx, md, NULL);
+    EVP_DigestUpdate(mdctx, salt, strlen(salt));
+    EVP_DigestUpdate(mdctx, password, strlen(password));
+    EVP_DigestFinal_ex(mdctx, md_value, &md_len);
+        printf("no fault here\n");
+    userpass = g_base64_encode(md_value,(unsigned long) md_len);
+    EVP_cleanup();
+    return g_strdup(userpass);
+}
+
 
 /* TRUE when server is active FALSE when server should stop. */
 static int active = TRUE;
@@ -234,14 +252,14 @@ void authenticate_user(char * command, gpointer key, gpointer user){
     struct user_info * current_user = (struct user_info *) user;
     gchar** command_split = g_strsplit(command, ":", 3);
     char * username;
-    char * userpass;
+    gchar * userpass;
 
     if(command_split[2] == NULL || command_split[1] == NULL){
         failed_login_attempt(key, current_user, command_split[1]);
     } else {
         username = strdup(command_split[1]);
-        userpass = strdup(command_split[2]);
-        gchar * password = g_key_file_get_string(users, "users", username, NULL);
+        userpass = hash_password(salt, command_split[2]);
+        gchar *password = g_key_file_get_string(users, "users", username, NULL);
         if(password == NULL){
             g_key_file_set_value(users, "users", username, userpass);
             successful_login_attempt(key, current_user, username);
@@ -423,6 +441,10 @@ int main(int argc, char **argv)
     char create_salt[salt_length];
     gen_random(create_salt, salt_length);
     salt = g_strdup(create_salt); 
+
+    /* configuring hash function */
+    mdctx = EVP_MD_CTX_create();
+    md = EVP_sha256();
     /* Load encryption & hashing algorithms for the SSL program */
     SSL_library_init();
 
