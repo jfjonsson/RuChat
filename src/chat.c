@@ -299,12 +299,18 @@ void readline_callback(char *line)
         char *new_user = strdup(&(line[i]));
         char passwd[48];
         getpasswd("Password: ", passwd, 48);
-
-        char * return_message = g_strconcat("/6 ", new_user, " ", passwd, NULL);
-        send_message(return_message);
-
-        free(return_message);
-        free(new_user);
+        char * login_message = g_strconcat("/6", ":", new_user, ":", passwd, NULL);
+        send_message(login_message);
+        char response[BUFF_SIZE];
+        int len = SSL_read(server_ssl, response, sizeof(response) - 1);
+        response[len] = '\0';
+        fflush(stdout);
+        printf("%s", response);
+        if(g_strcmp0(response, "login successful\n") == 0){
+            user = new_user;
+            fflush(stdout);
+            printf("You are now logged in as %s\n", user);
+        }
         rl_free(line);
         return;
     }
