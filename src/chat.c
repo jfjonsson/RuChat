@@ -97,6 +97,9 @@ void getpasswd(const char *prompt, char *passwd, size_t size)
 }
 
 
+/*
+ * Shutdown a  connection with a client
+ */
 int ssl_shut_down(SSL *ssl, int sockfd) {
     /* Shutdown the client side of the SSL connection */
     int err = SSL_shutdown(ssl);
@@ -357,7 +360,7 @@ int main(int argc, char **argv)
     signal(SIGINT, sigint_handler);
 
     char *s_ipaddr;
-    unsigned short int s_port; /* Check that port was provided */
+    unsigned short int s_port; /* Check that port and ip was provided */
     if(argc > 2) {
         s_ipaddr = g_malloc0(strlen(argv[1]));
         sscanf(argv[1], "%s\n", s_ipaddr);;
@@ -444,6 +447,7 @@ int main(int argc, char **argv)
     /* Get the server's certificate */
     server_cert = SSL_get_peer_certificate(server_ssl);
 
+    /* Print connection information */
     if (server_cert != NULL)
     {
         printf ("Server certificate:\n");
@@ -487,6 +491,7 @@ int main(int argc, char **argv)
         timeout.tv_sec = 5;
         timeout.tv_usec = 0;
 
+        /* Add the server socket to the select set */
         int r = select(((server_fd > STDIN_FILENO) ? server_fd : STDIN_FILENO) + 1, &rfds, NULL, NULL, &timeout);
         if (r < 0) {
             if (errno == EINTR) {
@@ -527,7 +532,7 @@ int main(int argc, char **argv)
 
     printf("Exiting!\n");
 
-    /* Shutdown and free */
+    /* Shutdown and free all the things */
     ssl_shut_down(server_ssl, server_fd);
     SSL_CTX_free(ssl_ctx);
     ERR_remove_state(0);
