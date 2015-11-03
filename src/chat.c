@@ -234,7 +234,7 @@ void readline_callback(char *line)
 
         g_free(message);
 
-        /* TODO: Maybe update the prompt. */
+        /* Update the prompt. */
         free(prompt);
         prompt = g_strjoin(NULL, chatroom, " > ", NULL); /* What should the new prompt look like? */
         rl_set_prompt(prompt);
@@ -242,7 +242,7 @@ void readline_callback(char *line)
         return;
     }
     if (strncmp("/list", line, 5) == 0) {
-        /* TODO: Query all available chat rooms */
+        /* Query all available chat rooms */
         send_message("/3");
         rl_free(line);
         return;
@@ -275,14 +275,17 @@ void readline_callback(char *line)
             rl_free(line);
             return;
         }
-        char *receiver = strndup(&(line[i]), j - i - 1);
-        char *message = strndup(&(line[j]), j - i - 1);
+        gchar *receiver = strndup(&(line[i]), j - i - 1);
+        gchar *message = strdup(&(line[j]));
 
-        /* TODO: Send private message to receiver. */
-        printf("%s\n", receiver);
-        printf("%s\n", message);
+        gchar *return_message = g_strconcat("/5 ", receiver, " ", message, NULL);
+
+        send_message(return_message);
 
         rl_free(line);
+        g_free(receiver);
+        g_free(message);
+        g_free(return_message);
         return;
     }
     if (strncmp("/user", line, 5) == 0) {
@@ -316,6 +319,7 @@ void readline_callback(char *line)
     }
     if (strncmp("/who", line, 4) == 0) {
         send_message("/7");
+        rl_free(line);
         return;
     }
 
@@ -327,14 +331,16 @@ void readline_callback(char *line)
             write(STDOUT_FILENO, "Usage: /nick nickname\n", 22);
             fsync(STDOUT_FILENO);
             rl_redisplay();
+            rl_free(line);
             return;
         }
         gchar *nick = g_strdup(&(line[i]));
-        gchar *return_message = g_strconcat("/7 ", nick, NULL);
+        gchar *return_message = g_strconcat("/8 ", nick, NULL);
         send_message(return_message);
 
         g_free(nick);
         g_free(return_message);
+        rl_free(line);
         return;
     }
     /* Sent the buffer to the server. */
@@ -363,15 +369,6 @@ int main(int argc, char **argv)
     SSL_library_init();
     SSL_load_error_strings();
     SSL_CTX *ssl_ctx = SSL_CTX_new(SSLv3_client_method());
-
-    /* TODO:
-     * We may want to use a certificate file if we self sign the
-     * certificates using SSL_use_certificate_file(). If available,
-     * a private key can be loaded using
-     * SSL_CTX_use_PrivateKey_file(). The use of private keys with
-     * a server side key data base can be used to authenticate the
-     * client.
-     */
 
     /* If context failed to initialize */
     if(ssl_ctx == NULL) {
@@ -504,7 +501,7 @@ int main(int argc, char **argv)
             rl_callback_read_char();
         }
         if(FD_ISSET(server_fd, &rfds)) {
-            /* TODO: Handle messages from the server here! */
+            /* Handle messages from the server here! */
 
             int len = SSL_read(server_ssl, message, sizeof(message) - 1);
 
@@ -513,6 +510,7 @@ int main(int argc, char **argv)
             }
 
             if(len == 0) {
+                /* Connection terminated */
                 break;
             }
 
@@ -524,8 +522,6 @@ int main(int argc, char **argv)
         }
 
     }
-    /* TODO: replace by code to shutdown the connection and exit
-       the program. */
 
     printf("Exiting!\n");
 

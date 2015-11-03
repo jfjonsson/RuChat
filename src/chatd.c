@@ -23,15 +23,20 @@
 
 #define UNUSED(x) (void)(x)
 
+#define willy NULL
+
+#define CLIENT_TIME_OUT 300
+
 #define BUFF_SIZE 2048
 
 struct user_info {
     SSL *ssl;
     int fd;
     char *username;
+    char *nick;
     char *room;
     int login_attempts;
-    time_t last_request_time;
+    time_t timeout;
 } user_info;
 
 struct chatroom {
@@ -265,7 +270,7 @@ void authenticate_user(char * command, gpointer key, gpointer user){
             successful_login_attempt(key, current_user, username);
         } else if(g_strcmp0(password, userpass) == 0){
             successful_login_attempt(key, current_user, username);
-        } else {  
+        } else {
             failed_login_attempt(key, current_user, username);
         }
         free(username);
@@ -273,7 +278,6 @@ void authenticate_user(char * command, gpointer key, gpointer user){
     }
     free(command_split);
 }
-
 
 void join_room(char *room_name, gpointer user) {
     struct user_info *u = (struct user_info *) user;
@@ -292,6 +296,10 @@ void join_room(char *room_name, gpointer user) {
     }
 }
 
+void set_nick(char *nick, struct user_info *user) {
+    user->nick = strdup(nick);
+}
+
 /* command      key
  * ====================
  * bye / quit   0
@@ -302,6 +310,7 @@ void join_room(char *room_name, gpointer user) {
  * say          5
  * user         6
  * who          7
+ * nick         8
  */
 void command(char *command, gpointer key, gpointer user) {
     switch(command[1]) {
@@ -321,6 +330,7 @@ void command(char *command, gpointer key, gpointer user) {
                 break;
             case '5':
                 log_message("command say", key);
+                /* TODO: private_message(&command[3], key, user); */
                 break;
             case '6':
                 log_message("command user", key);
@@ -329,6 +339,10 @@ void command(char *command, gpointer key, gpointer user) {
             case '7':
                 log_message("command who", key);
                 g_tree_foreach(connections, list_users, user);
+                break;
+            case '8':
+                log_message("command nick", key);
+                set_nick(&command[3], user);
                 break;
             default:
                 log_message("invalid command", key);
@@ -346,6 +360,20 @@ void send_message(gpointer data, gpointer user_data) {
     }
 }
 
+gboolean check_timeout(gpointer key, gpointer value, gpointer data) {
+    UNUSED(data);
+    struct user_info *user = (struct user_info *) value;
+    struct sockaddr_in *client = (struct sockaddr_in *) key;
+    if(difftime(time(0), user->timeout) > CLIENT_TIME_OUT) {
+        /* Disconnect user */
+        log_message("timed out.", client);
+        ssl_shut_down(user->ssl, user->fd);
+        g_tree_remove(connections, client);
+    }
+
+    return FALSE;
+}
+
 gboolean shut_down(gpointer key, gpointer value, gpointer data) {
     UNUSED(key);
     UNUSED(data);
@@ -356,9 +384,10 @@ gboolean shut_down(gpointer key, gpointer value, gpointer data) {
 
 gboolean read_data(gpointer key, gpointer value, gpointer data) {
     struct user_info *user = (struct user_info *) value;
+    struct sockaddr_in *client = (struct sockaddr_in *) key;
     char message[BUFF_SIZE];
-    memset(message, 0, BUFF_SIZE);
     if(FD_ISSET(user->fd, (fd_set *) data)) {
+        memset(message, 0, BUFF_SIZE);
         int ret = SSL_read(user->ssl, message, sizeof(message) - 1);
 
         if(ret <= 0) {
@@ -371,18 +400,25 @@ gboolean read_data(gpointer key, gpointer value, gpointer data) {
         }
 
         if(ret > 0) {
+            user->timeout = time(0);
             message[ret] = '\0';
             if(message[0] == '/') {
                 command(message, key, user);
             } else {
                 if(user->room) {
-                    gchar *l_message = g_strjoin(NULL, "message to ", user->room, ": ", message, NULL);
+                    gchar *l_message = g_strconcat("message to ", user->room, ": ", message, NULL);
                     log_message(l_message, key);
 
-                    /* TODO: Set message sender username or anon+port */
+                    char port_str[5];
+                    sprintf(port_str, "%d", client->sin_port);
+                    gchar *identity = (user->nick) ? strdup(user->nick) : g_strconcat(inet_ntoa(client->sin_addr), ":", port_str, NULL);
+
+                    l_message = g_strconcat(identity, ": ", message, NULL);
+                    /* TODO: Set message sender nick or ip+port */
                     struct chatroom *room = g_tree_lookup(chatrooms, user->room);
-                    g_list_foreach(room->room, send_message, message);
-                    free(l_message);
+                    g_list_foreach(room->room, send_message, l_message);
+                    g_free(l_message);
+                    g_free(identity);
                 } else {
                     log_message("message to no room", key);
                     int write_err = SSL_write(user->ssl, "Error: Please join a chatroom to send messages.", 50);
@@ -403,6 +439,7 @@ void data_dest_func_user(gpointer data) {
     if(data) {
         struct user_info *user = (struct user_info*) data;
         free(user->username);
+        free(user->nick);
         free(user->room);
         free(user);
     }
@@ -557,6 +594,7 @@ int main(int argc, char **argv)
                         new_user->username = NULL;
                         new_user->room = NULL;
                         new_user->login_attempts = 0;
+                        new_user->timeout = time(0);
                         g_tree_insert(connections, client, new_user);
 
                         /* Send welcome message */
@@ -576,6 +614,7 @@ int main(int argc, char **argv)
             fprintf(stdout, "No message in five seconds.\n");
             fflush(stdout);
         }
+        g_tree_foreach(connections, check_timeout, NULL);
     }
 
     /* TODO: free everything */
@@ -589,5 +628,8 @@ int main(int argc, char **argv)
     ERR_free_strings();
     EVP_cleanup();
     CRYPTO_cleanup_all_ex_data();
+
+    /* Free Willy! */
+    free(willy);
 
 }
