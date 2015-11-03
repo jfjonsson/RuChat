@@ -83,14 +83,19 @@ void wait_for (unsigned int secs) {
     while (time(0) < retTime);    /* Loop until it arrives. */
 }
 
-void gen_random(char *s, const int len) {
-    static const char alphanum[] =     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    time_t now = time(0);
-    srand((int) now);
-    for (int i = 0; i < len; ++i) {
-        s[i] = alphanum[rand() % (sizeof(alphanum) - 1)];
+void gen_salt(char *salt, char *username) {
+    static const char alphatemp[] =     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    int len = EVP_MAX_MD_SIZE;
+    char *alphanum = g_strconcat(alphatemp, username, NULL);
+    int seed = 0;
+    for(unsigned int i = 1; i < strlen(username); i++){
+        seed += (username[i] * username[i - 1]);   
     }
-    s[len] = '\0';
+    srand((int) seed);
+    for (int i = 0; i < len; ++i) {
+        salt[i] = alphanum[rand() % (strlen(alphanum) - 1)];
+    }
+    salt[len] = '\0';
 }
 
 int name_cmp(const void *str1, const void *str2) {
@@ -105,19 +110,18 @@ GKeyFile *users;
 fd_set rfds;
 
 /* configuration for hashing passwords. */
-char *salt;
 EVP_MD_CTX *mdctx;
 const EVP_MD *md;
 
-gchar *hash_password(char * salt, char *password){
+gchar *hash_password(char * salt, char *password, char *username){
     unsigned int md_len;
     unsigned char md_value[EVP_MAX_MD_SIZE];
     gchar *userpass;
     EVP_DigestInit_ex(mdctx, md, NULL);
     EVP_DigestUpdate(mdctx, salt, strlen(salt));
     EVP_DigestUpdate(mdctx, password, strlen(password));
+    EVP_DigestUpdate(mdctx, username, strlen(username));
     EVP_DigestFinal_ex(mdctx, md_value, &md_len);
-        printf("no fault here\n");
     userpass = g_base64_encode(md_value,(unsigned long) md_len);
     EVP_cleanup();
     return g_strdup(userpass);
@@ -269,7 +273,9 @@ void authenticate_user(char * command, gpointer key, gpointer user){
         failed_login_attempt(key, current_user, command_split[1]);
     } else {
         username = strdup(command_split[1]);
-        userpass = hash_password(salt, command_split[2]);
+        char *salt = g_malloc0(EVP_MAX_MD_SIZE);
+        gen_salt(salt, username);
+        userpass = hash_password(salt, command_split[2], username);
         gchar *password = g_key_file_get_string(users, "users", username, NULL);
         if(password == NULL){
             g_key_file_set_value(users, "users", username, userpass);
@@ -513,12 +519,6 @@ int main(int argc, char **argv)
     SSL_CTX *ctx;
     SSL *ssl;
     int err;
-
-    /* generating salt string */
-    int salt_length = rand() % 40;
-    char create_salt[salt_length];
-    gen_random(create_salt, salt_length);
-    salt = g_strdup(create_salt); 
 
     /* configuring hash function */
     mdctx = EVP_MD_CTX_create();
