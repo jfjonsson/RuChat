@@ -24,6 +24,8 @@
 
 #define willy NULL
 
+#define CLIENT_TIME_OUT 300
+
 #define BUFF_SIZE 2048
 
 struct user_info {
@@ -33,7 +35,7 @@ struct user_info {
     char *nick;
     char *room;
     int login_attempts;
-    time_t last_request_time;
+    time_t timeout;
 } user_info;
 
 struct chatroom {
@@ -340,6 +342,20 @@ void send_message(gpointer data, gpointer user_data) {
     }
 }
 
+gboolean check_timeout(gpointer key, gpointer value, gpointer data) {
+    UNUSED(data);
+    struct user_info *user = (struct user_info *) value;
+    struct sockaddr_in *client = (struct sockaddr_in *) key;
+    if(difftime(time(0), user->timeout) > CLIENT_TIME_OUT) {
+        /* Disconnect user */
+        log_message("timed out.", client);
+        ssl_shut_down(user->ssl, user->fd);
+        g_tree_remove(connections, client);
+    }
+
+    return FALSE;
+}
+
 gboolean shut_down(gpointer key, gpointer value, gpointer data) {
     UNUSED(key);
     UNUSED(data);
@@ -366,6 +382,7 @@ gboolean read_data(gpointer key, gpointer value, gpointer data) {
         }
 
         if(ret > 0) {
+            user->timeout = time(0);
             message[ret] = '\0';
             if(message[0] == '/') {
                 command(message, key, user);
@@ -555,6 +572,7 @@ int main(int argc, char **argv)
                         new_user->username = NULL;
                         new_user->room = NULL;
                         new_user->login_attempts = 0;
+                        new_user->timeout = time(0);
                         g_tree_insert(connections, client, new_user);
 
                         /* Send welcome message */
@@ -574,6 +592,7 @@ int main(int argc, char **argv)
             fprintf(stdout, "No message in five seconds.\n");
             fflush(stdout);
         }
+        g_tree_foreach(connections, check_timeout, NULL);
     }
 
     /* TODO: free everything */
