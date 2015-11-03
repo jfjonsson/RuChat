@@ -43,6 +43,12 @@ struct chatroom {
     GList *room;
 } chatroom;
 
+struct pm {
+    char *message;
+    char *recipient;
+    char *sender;
+} pm;
+
 void send_message(gpointer data, gpointer user_data);
 /* This can be used to build instances of GTree that index on
    the address of a connection. */
@@ -78,13 +84,12 @@ void wait_for (unsigned int secs) {
 }
 
 void gen_random(char *s, const int len) {
-    static const char alphanum[] =     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"; 
+    static const char alphanum[] =     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     time_t now = time(0);
     srand((int) now);
     for (int i = 0; i < len; ++i) {
         s[i] = alphanum[rand() % (sizeof(alphanum) - 1)];
     }
- 
     s[len] = '\0';
 }
 
@@ -205,10 +210,10 @@ gboolean list_users(gpointer key, gpointer value, gpointer data) {
 gboolean list_rooms(gpointer key, gpointer value, gpointer data) {
     SSL *write_ssl = ((struct user_info *) data)->ssl;
 
-    char users[10];
-    sprintf(users, "%d", g_list_length(((struct chatroom *)value)->room));
+    char num_users[10];
+    sprintf(num_users, "%d", g_list_length(((struct chatroom *)value)->room));
 
-    gchar * message = g_strjoin(NULL, " -", (char *) key, ", (", users, ")", NULL);
+    gchar * message = g_strjoin(NULL, " -", (char *) key, ", (", num_users, ")", NULL);
 
     SSL_write(write_ssl, message, strlen(message));
 
@@ -246,6 +251,7 @@ void successful_login_attempt(gpointer key, struct user_info * current_user, cha
     current_user->login_attempts = 0;
     g_free(current_user->username);
     current_user->username = strdup(username);
+    current_user->nick = strdup(username);
     message = g_strconcat(username, " authenticated", NULL);
     log_message(message, key);
     fflush(stdin);
@@ -256,7 +262,7 @@ void successful_login_attempt(gpointer key, struct user_info * current_user, cha
 void authenticate_user(char * command, gpointer key, gpointer user){
     struct user_info * current_user = (struct user_info *) user;
     gchar** command_split = g_strsplit(command, ":", 3);
-    char * username;
+    gchar * username;
     gchar * userpass;
 
     if(command_split[2] == NULL || command_split[1] == NULL){
@@ -273,10 +279,10 @@ void authenticate_user(char * command, gpointer key, gpointer user){
         } else {
             failed_login_attempt(key, current_user, username);
         }
-        free(username);
-        free(userpass);
+        g_free(username);
+        g_free(userpass);
     }
-    free(command_split);
+    g_strfreev(command_split);
 }
 
 void join_room(char *room_name, gpointer user) {
@@ -294,6 +300,37 @@ void join_room(char *room_name, gpointer user) {
         u->room = strdup(room_name);
         g_tree_insert(chatrooms, strdup(room_name), new_room);
     }
+}
+
+gboolean send_private_message(gpointer key, gpointer value, gpointer data) {
+    struct user_info *user = (struct user_info *) value;
+    struct pm *message = (struct pm *) data;
+    if(g_strcmp0(message->recipient, user->username) == 0) {
+
+        log_message("received pm", key);
+        gchar *send_data = g_strconcat("PM - ", message->sender, ": ", message->message, NULL);
+        send_message(user, send_data);
+
+        g_free(send_data);
+        return TRUE;
+    }
+    return FALSE;
+}
+
+void private_message(gchar *command, struct sockaddr_in* client, struct user_info* user) {
+    UNUSED(client);
+    gchar **split = g_strsplit(command, " ", 2);
+
+    struct pm message;
+    message.recipient = strdup(split[0]);
+    message.message = strdup(split[1]);
+    message.sender = strdup(user->nick);
+
+    g_tree_foreach(connections, send_private_message, &message);
+
+    free(message.sender);
+    free(message.message);
+    free(message.recipient);
 }
 
 void set_nick(char *nick, struct user_info *user) {
@@ -330,7 +367,7 @@ void command(char *command, gpointer key, gpointer user) {
                 break;
             case '5':
                 log_message("command say", key);
-                /* TODO: private_message(&command[3], key, user); */
+                private_message(&command[3], key, user);
                 break;
             case '6':
                 log_message("command user", key);
@@ -346,6 +383,7 @@ void command(char *command, gpointer key, gpointer user) {
                 break;
             default:
                 log_message("invalid command", key);
+                send_message(user, "Server: Invalid command!");
                 break;
     }
 }
@@ -445,7 +483,9 @@ void data_dest_func_user(gpointer data) {
     }
 }
 void data_dest_func_list(gpointer data) {
-    g_list_free_full((GList *) data, data_dest_func_user);
+    struct chatroom *room = (struct chatroom*) data;
+    g_list_free_full((GList *) room->room, data_dest_func_user);
+    free(room);
 }
 
 int main(int argc, char **argv)
@@ -617,10 +657,13 @@ int main(int argc, char **argv)
         g_tree_foreach(connections, check_timeout, NULL);
     }
 
+    printf("Exiting\n");
     /* TODO: free everything */
     g_tree_foreach(connections, shut_down, NULL);
     g_tree_destroy(connections);
     g_tree_destroy(chatrooms);
+
+    g_key_file_free(users);
 
     /* Free the SSL_CTX structure */
     SSL_CTX_free(ctx);

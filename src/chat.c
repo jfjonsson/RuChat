@@ -275,10 +275,10 @@ void readline_callback(char *line)
             rl_free(line);
             return;
         }
-        gchar *receiver = strndup(&(line[i]), j - i - 1);
+        gchar *receiver = strndup(&(line[i]), j - i);
         gchar *message = strdup(&(line[j]));
 
-        gchar *return_message = g_strconcat("/5 ", receiver, " ", message, NULL);
+        gchar *return_message = g_strconcat("/5 ", receiver, message, NULL);
 
         send_message(return_message);
 
@@ -314,6 +314,8 @@ void readline_callback(char *line)
             fflush(stdout);
             printf("You are now logged in as %s\n", user);
         }
+        free(login_message);
+        free(new_user);
         rl_free(line);
         return;
     }
