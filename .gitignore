@@ -1,4 +1,4 @@
 *.o
-src/server_log.txt
-src/chat
-src/chatd
+/src/server_log.txt
+/src/chat
+/src/chatd

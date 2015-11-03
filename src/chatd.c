@@ -250,9 +250,9 @@ void authenticate_user(char * command, gpointer key, gpointer user){
         } else {  
             failed_login_attempt(key, current_user, username);
         }
+        free(username);
+        free(userpass);
     }
-    free(username);
-    free(userpass);
     free(command_split);
 }
 
@@ -382,10 +382,12 @@ void key_dest_func(gpointer key) {
     free(key);
 }
 void data_dest_func_user(gpointer data) {
-    struct user_info *user = (struct user_info*) data;
-    free(user->username);
-    free(user->room);
-    free(user);
+    if(data) {
+        struct user_info *user = (struct user_info*) data;
+        free(user->username);
+        free(user->room);
+        free(user);
+    }
 }
 void data_dest_func_list(gpointer data) {
     g_list_free_full((GList *) data, data_dest_func_user);
@@ -401,7 +403,7 @@ int main(int argc, char **argv)
 
     /* Initialize connections tree */
     connections = g_tree_new_full(sockaddr_in_cmp_data, NULL, key_dest_func, data_dest_func_user);
-    chatrooms = g_tree_new_full(name_cmp_data, NULL, key_dest_func, data_dest_func_list);
+    chatrooms = g_tree_new_full(name_cmp_data, NULL, NULL, data_dest_func_list);
     users = g_key_file_new();
 
     struct chatroom *lobby = g_new0(struct chatroom, 1);
@@ -459,7 +461,6 @@ int main(int argc, char **argv)
 
     int sockfd;
     struct sockaddr_in server;
-    //char message[512];
 
     /* Create and bind a TCP socket */
     sockfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -555,7 +556,6 @@ int main(int argc, char **argv)
         }
     }
 
-    /* TODO: free chat rooms */
     /* TODO: free everything */
     g_tree_foreach(connections, shut_down, NULL);
     g_tree_destroy(connections);
@@ -563,4 +563,9 @@ int main(int argc, char **argv)
 
     /* Free the SSL_CTX structure */
     SSL_CTX_free(ctx);
+    ERR_remove_state(0);
+    ERR_free_strings();
+    EVP_cleanup();
+    CRYPTO_cleanup_all_ex_data();
+
 }
