@@ -22,12 +22,15 @@
 
 #define UNUSED(x) (void)(x)
 
+#define willy NULL
+
 #define BUFF_SIZE 2048
 
 struct user_info {
     SSL *ssl;
     int fd;
     char *username;
+    char *nick;
     char *room;
     int login_attempts;
 } user_info;
@@ -232,7 +235,7 @@ void authenticate_user(char * command, gpointer key, gpointer user){
             successful_login_attempt(key, current_user, username);
         } else if(g_strcmp0(password, userpass) == 0){
             successful_login_attempt(key, current_user, username);
-        } else {  
+        } else {
             failed_login_attempt(key, current_user, username);
         }
         free(username);
@@ -259,6 +262,10 @@ void join_room(char *room_name, gpointer user) {
     }
 }
 
+void set_nick(char *nick, struct user_info *user) {
+    user->nick = strdup(nick);
+}
+
 /* command      key
  * ====================
  * bye / quit   0
@@ -269,6 +276,7 @@ void join_room(char *room_name, gpointer user) {
  * say          5
  * user         6
  * who          7
+ * nick         8
  */
 void command(char *command, gpointer key, gpointer user) {
     switch(command[1]) {
@@ -296,6 +304,10 @@ void command(char *command, gpointer key, gpointer user) {
             case '7':
                 log_message("command who", key);
                 g_tree_foreach(connections, list_users, user);
+                break;
+            case '8':
+                log_message("command nick", key);
+                set_nick(&command[3], user);
                 break;
             default:
                 log_message("invalid command", key);
@@ -343,13 +355,17 @@ gboolean read_data(gpointer key, gpointer value, gpointer data) {
                 command(message, key, user);
             } else {
                 if(user->room) {
-                    gchar *l_message = g_strjoin(NULL, "message to ", user->room, ": ", message, NULL);
+                    gchar *l_message = g_strconcat("message to ", user->room, ": ", message, NULL);
                     log_message(l_message, key);
 
-                    /* TODO: Set message sender username or anon+port */
+                    gchar *identity = (user->nick) ? strdup(user->nick) : strdup("Anon");
+
+                    l_message = g_strconcat(identity, ": ", message, NULL);
+                    /* TODO: Set message sender nick or ip+port */
                     struct chatroom *room = g_tree_lookup(chatrooms, user->room);
-                    g_list_foreach(room->room, send_message, message);
-                    free(l_message);
+                    g_list_foreach(room->room, send_message, l_message);
+                    g_free(l_message);
+                    g_free(identity);
                 } else {
                     log_message("message to no room", key);
                     int write_err = SSL_write(user->ssl, "Error: Please join a chatroom to send messages.", 50);
@@ -370,6 +386,7 @@ void data_dest_func_user(gpointer data) {
     if(data) {
         struct user_info *user = (struct user_info*) data;
         free(user->username);
+        free(user->nick);
         free(user->room);
         free(user);
     }
@@ -547,5 +564,8 @@ int main(int argc, char **argv)
     ERR_free_strings();
     EVP_cleanup();
     CRYPTO_cleanup_all_ex_data();
+
+    /* Free Willy! */
+    free(willy);
 
 }
