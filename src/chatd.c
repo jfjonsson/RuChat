@@ -261,7 +261,6 @@ void authenticate_user(char * command, gpointer key, gpointer user){
     free(command_split);
 }
 
-
 void join_room(char *room_name, gpointer user) {
     struct user_info *u = (struct user_info *) user;
     remove_from_room(user);
@@ -313,6 +312,7 @@ void command(char *command, gpointer key, gpointer user) {
                 break;
             case '5':
                 log_message("command say", key);
+                /* TODO: private_message(&command[3], key, user); */
                 break;
             case '6':
                 log_message("command user", key);
@@ -368,8 +368,8 @@ gboolean read_data(gpointer key, gpointer value, gpointer data) {
     struct user_info *user = (struct user_info *) value;
     struct sockaddr_in *client = (struct sockaddr_in *) key;
     char message[BUFF_SIZE];
-    memset(message, 0, BUFF_SIZE);
     if(FD_ISSET(user->fd, (fd_set *) data)) {
+        memset(message, 0, BUFF_SIZE);
         int ret = SSL_read(user->ssl, message, sizeof(message) - 1);
 
         if(ret <= 0) {

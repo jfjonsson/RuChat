@@ -275,14 +275,17 @@ void readline_callback(char *line)
             rl_free(line);
             return;
         }
-        char *receiver = strndup(&(line[i]), j - i - 1);
-        char *message = strndup(&(line[j]), j - i - 1);
+        gchar *receiver = strndup(&(line[i]), j - i - 1);
+        gchar *message = strdup(&(line[j]));
 
-        /* TODO: Send private message to receiver. */
-        printf("%s\n", receiver);
-        printf("%s\n", message);
+        gchar *return_message = g_strconcat("/5 ", receiver, " ", message, NULL);
+
+        send_message(return_message);
 
         rl_free(line);
+        g_free(receiver);
+        g_free(message);
+        g_free(return_message);
         return;
     }
     if (strncmp("/user", line, 5) == 0) {
