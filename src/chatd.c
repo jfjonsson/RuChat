@@ -30,6 +30,7 @@ struct user_info {
     char *username;
     char *room;
     int login_attempts;
+    time_t last_request_time;
 } user_info;
 
 struct chatroom {
@@ -63,11 +64,22 @@ int sockaddr_in_cmp(const void *addr1, const void *addr2)
 }
 int sockaddr_in_cmp_data(const void *addr1, const void *addr2, gpointer data) { UNUSED(data); return sockaddr_in_cmp(addr1, addr2); }
 
-//timeout function implementation from
-//http://stackoverflow.com/questions/3930363/implement-time-delay-in-c
+/* timeout function implementation from
+http://stackoverflow.com/questions/3930363/implement-time-delay-in-c */
 void wait_for (unsigned int secs) {
-    time_t retTime = time(0) + secs;     // Get finishing time.
-    while (time(0) < retTime);    // Loop until it arrives.
+    time_t retTime = time(0) + secs;     /* Get finishing time. */
+    while (time(0) < retTime);    /* Loop until it arrives. */
+}
+
+void gen_random(char *s, const int len) {
+    static const char alphanum[] =     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"; 
+    time_t now = time(0);
+    srand((int) now);
+    for (int i = 0; i < len; ++i) {
+        s[i] = alphanum[rand() % (sizeof(alphanum) - 1)];
+    }
+ 
+    s[len] = '\0';
 }
 
 int name_cmp(const void *str1, const void *str2) {
@@ -80,6 +92,9 @@ GTree *connections;
 GTree *chatrooms;
 GKeyFile *users;
 fd_set rfds;
+
+/* random string used for hashing passwords. */
+char *salt;
 
 /* TRUE when server is active FALSE when server should stop. */
 static int active = TRUE;
@@ -401,6 +416,11 @@ int main(int argc, char **argv)
     SSL *ssl;
     int err;
 
+    /* generating salt string */
+    int salt_length = rand() % 40;
+    char create_salt[salt_length];
+    gen_random(create_salt, salt_length);
+    salt = g_strdup(create_salt); 
     /* Load encryption & hashing algorithms for the SSL program */
     SSL_library_init();
 
