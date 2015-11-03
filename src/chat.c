@@ -196,6 +196,7 @@ void readline_callback(char *line)
             (strncmp("/quit", line, 5) == 0)) {
         rl_callback_handler_remove();
         active = 0;
+        rl_free(line);
         return;
     }
     if (strncmp("/game", line, 5) == 0) {
@@ -206,10 +207,12 @@ void readline_callback(char *line)
             write(STDOUT_FILENO, "Usage: /game username\n", 29);
             fsync(STDOUT_FILENO);
             rl_redisplay();
+            rl_free(line);
             return;
         }
         send_message("/1");
         /* Start game */
+        rl_free(line);
         return;
     }
     if (strncmp("/join", line, 5) == 0) {
@@ -220,6 +223,7 @@ void readline_callback(char *line)
             write(STDOUT_FILENO, "Usage: /join chatroom\n", 22);
             fsync(STDOUT_FILENO);
             rl_redisplay();
+            rl_free(line);
             return;
         }
         free(chatroom);
@@ -234,16 +238,19 @@ void readline_callback(char *line)
         free(prompt);
         prompt = g_strjoin(NULL, chatroom, " > ", NULL); /* What should the new prompt look like? */
         rl_set_prompt(prompt);
+        rl_free(line);
         return;
     }
     if (strncmp("/list", line, 5) == 0) {
         /* TODO: Query all available chat rooms */
         send_message("/3");
+        rl_free(line);
         return;
     }
     if (strncmp("/roll", line, 5) == 0) {
         /* TODO: roll dice and declare winner. */
         send_message("/4");
+        rl_free(line);
         return;
     }
     if (strncmp("/say", line, 4) == 0) {
@@ -255,6 +262,7 @@ void readline_callback(char *line)
                     29);
             fsync(STDOUT_FILENO);
             rl_redisplay();
+            rl_free(line);
             return;
         }
         /* Skip whitespace */
@@ -264,6 +272,7 @@ void readline_callback(char *line)
             write(STDOUT_FILENO, "Usage: /say username message\n", 29);
             fsync(STDOUT_FILENO);
             rl_redisplay();
+            rl_free(line);
             return;
         }
         char *receiver = strndup(&(line[i]), j - i - 1);
@@ -273,6 +282,7 @@ void readline_callback(char *line)
         printf("%s\n", receiver);
         printf("%s\n", message);
 
+        rl_free(line);
         return;
     }
     if (strncmp("/user", line, 5) == 0) {
@@ -283,6 +293,7 @@ void readline_callback(char *line)
             write(STDOUT_FILENO, "Usage: /user username\n", 22);
             fsync(STDOUT_FILENO);
             rl_redisplay();
+            rl_free(line);
             return;
         }
         char *new_user = strdup(&(line[i]));
@@ -293,6 +304,8 @@ void readline_callback(char *line)
         send_message(return_message);
 
         free(return_message);
+        free(new_user);
+        rl_free(line);
         return;
     }
     if (strncmp("/who", line, 4) == 0) {
@@ -322,6 +335,7 @@ void readline_callback(char *line)
     snprintf(buffer, 255, "%s\n", line);
     SSL_write(server_ssl, buffer, strlen(buffer));
     fsync(STDOUT_FILENO);
+    rl_free(line);
 }
 
 int main(int argc, char **argv)
@@ -450,8 +464,8 @@ int main(int argc, char **argv)
      * writes to sock_fd will insert unencrypted data into the
      * stream, which even may crash the server.
      *
-        sbio = BIO_new_socket(server_fd, BIO_NOCLOSE);
-        SSL_set_bio(server_ssl, sbio, sbio);
+     sbio = BIO_new_socket(server_fd, BIO_NOCLOSE);
+     SSL_set_bio(server_ssl, sbio, sbio);
      */
 
     /* Read characters from the keyboard while waiting for input.
@@ -502,6 +516,7 @@ int main(int argc, char **argv)
             write(STDOUT_FILENO, prompt, strlen(prompt));
             fsync(STDOUT_FILENO);
         }
+
     }
     /* TODO: replace by code to shutdown the connection and exit
        the program. */
@@ -511,6 +526,14 @@ int main(int argc, char **argv)
     /* Shutdown and free */
     ssl_shut_down(server_ssl, server_fd);
     SSL_CTX_free(ssl_ctx);
+    ERR_remove_state(0);
+    ERR_free_strings();
+    rl_free_undo_list();
+    rl_free_line_state();
+    EVP_cleanup();
+    CRYPTO_cleanup_all_ex_data();
     free(prompt);
+    free(chatroom);
+    free(user);
     g_free(s_ipaddr);
 }
