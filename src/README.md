@@ -8,24 +8,24 @@ We decided to store the passwords encoded in a haspmap where each encrypted pass
 
 >Where are the salt strings stored?
 
-Steinn
+A salt string is generated every time the server is started. It uses a random function with a seed depending on the local time. It is stored in memory in global scope, we decided not to store it in a file since it was out of the scope and time of this project to implement a secure way to produce and store a user-salt connection.
 
 >Why do you send the plain text password/hashed password? 
 
-We decided to send the password as plain text from the client to the server.
+We decided to send the password as plain text from the client to the server. The password is sent with ssl so we do not have to worry about packet sniffing and we immediately salt and hash the password on the server so sending the password as plain text should be secure. However we do recognize that some clients may be suspicious of the server for accepting their passwords as plain text so additional encryption might be implemented on the client side as well.
 
 >What are the security implications of your decision?
 
-
+Our conclusion is that although we have taken measures to secure the users passwords in a safe way a lot more work can and should be done in order to protect passwords. Encrypted files storing the passwords, hashes and salts would be optimal. The keys for these encrypted files should also be stored in a secure location so attackers could not acces them.
 
 ### 6 Private messages
 >Should private messages be logged? 
 
-No private messages should not be logged in our system. Because we have not implemented a way to retrieve them back and there fore we would be saving data we are not using. The messages could contain sensative information and since we have no safe way of storing the messages we decide not to store any message sent to the server.
+No private messages should not be logged in our system. Because we have not implemented a way to retrieve them back and there fore we would be saving data we are not using. The messages could contain sensitive information and since we have no safe way of storing the messages we decided not to store any message sent to the server.
 
 >If so, what should be logged about private messages? 
 
-We log who sent the message and to whom or what room and at what time. No detaild information other than the user information and what action he is taking  is logged.
+We log who sent the message and to whom or what room and at what time. No detailed information other than the user information and what action he is taking is logged.
 
 >What are the consequences of your decisions?
 
